@@ -149,7 +149,7 @@ const ues = () => S.data.config.ues || [];
 function matiereDe(ev) {
 	const map = S.data.config.modules || {};
 	if (ev.module && map[ev.module]) return map[ev.module];
-	const txt = `${ev.module} ${ev.titre}`.toUpperCase();
+	const txt = `${ev.module} ${ev.titre} ${ev.code || ""}`.toUpperCase();
 	for (const ue of ues()) {
 		for (const m of ue.matieres || []) if (m.motsCles?.some((k) => txt.includes(k.toUpperCase()))) return `${ue.code} / ${m.nom}`;
 		if (txt.includes(ue.code.toUpperCase())) return ue.code;

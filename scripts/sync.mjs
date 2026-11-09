@@ -93,11 +93,11 @@ export function parseIcs(text) {
 }
 
 function field(desc, key) {
-	const m = desc.match(new RegExp(`-\\s*${key}\\s*:\\s*(.+)`));
+	const m = desc.match(new RegExp(`-[ \\t]*${key}[ \\t]*:[ \\t]*(.*)`));
 	return m ? m[1].trim() : "";
 }
 
-const TYPE_LABELS = { CM: "CM", ED_TD: "TD", TD: "TD", TPS: "TP", TP: "TP", TRAVAIL_AUTONOME: "Travail autonome", PROJET: "Projet", EXAMEN: "Examen" };
+const TYPE_LABELS = { CM: "CM", ED_TD: "TD", TD: "TD", TPS: "TP", TP: "TP", TRAVAIL_AUTONOME: "Travail autonome", PROJET: "Projet", EXAMEN: "Examen", TEST: "Évaluation", REUNION: "Réunion" };
 
 export function normaliseLise(raw) {
 	const out = [];
@@ -110,12 +110,13 @@ export function normaliseLise(raw) {
 		const summary = e.SUMMARY ? unescapeText(e.SUMMARY.value).trim() : "";
 		const module = field(desc, "MODULES");
 		const typeRaw = field(desc, "TYPE_ACTIVITE");
-		const titre = summary || module || "Cours";
-		const examen = typeRaw === "EXAMEN" || /\b(partiel|examen|ds|contr[ôo]le|interro)\b/i.test(titre);
+		const titre = module || summary || "Cours";
+		const examen = typeRaw === "EXAMEN" || typeRaw === "TEST" || /\b(partiel|examen|contr[ôo]le|interro)\b/i.test(titre);
 		out.push({
 			uid: e.UID ? e.UID.value : `${start.date.toISOString()}-${titre}`,
 			titre,
 			module,
+			code: summary,
 			type: TYPE_LABELS[typeRaw] || typeRaw || "",
 			examen,
 			debut: start.date.toISOString(),
@@ -254,7 +255,9 @@ async function main() {
 	let events = prev.data.events || [];
 	let etat = { ok: true, message: "Synchronisé avec Lise" };
 	try {
-		const fresh = normaliseLise(parseIcs(await fetchLise(config.liseId)));
+		const raw = parseIcs(await fetchLise(config.liseId));
+		if (raw[0]?.DTSTART) console.log(`::notice title=Format Lise::DTSTART ${JSON.stringify(raw[0].DTSTART)}`);
+		const fresh = normaliseLise(raw);
 		if (fresh.length === 0 && events.length > 0) {
 			etat = { ok: false, message: "Lise a renvoyé un calendrier vide : ancienne version conservée" };
 		} else events = fresh;
