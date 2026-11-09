@@ -260,7 +260,7 @@ async function main() {
 		} else events = fresh;
 	} catch (err) {
 		etat = { ok: false, message: `Lise injoignable (${err.message}) : ancienne version conservée` };
-		console.warn(etat.message);
+		console.log(`::warning title=Lise::${etat.message}`);
 	}
 
 	const same = JSON.stringify(events) === JSON.stringify(prev.data.events || []);
@@ -278,5 +278,9 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-	main().catch((err) => { console.error(err.message); process.exit(1); });
+	main().catch((err) => {
+		// Message lisible dans le résumé GitHub Actions (aucun secret affiché)
+		console.log(`::error title=Synchro::${String(err.message).replace(/\n/g, " ")}`);
+		process.exit(1);
+	});
 }

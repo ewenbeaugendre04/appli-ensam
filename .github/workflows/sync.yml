@@ -35,6 +35,7 @@ jobs:
           cp -r app/. _site/
 
       - name: Synchroniser Lise, tâches et partiels
+        continue-on-error: true # le site est publié même si la synchro échoue
         env:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
           DATA_REPO: ${{ github.repository_owner }}/appli-ensam-data
