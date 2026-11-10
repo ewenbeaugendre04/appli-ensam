@@ -506,7 +506,7 @@ function formPartiel(p = {}) {
 	});
 	f.addEventListener("submit", (e) => {
 		e.preventDefault();
-		const np = { id: p.id || uid(), titre: $("#fp-titre").value.trim(), matiere: $("#fp-mat").value, date: $("#fp-date").value, heureDebut: $("#fp-h1").value, heureFin: $("#fp-h2").value, salle: $("#fp-salle").value.trim(), note: $("#fp-note").value.trim() };
+		const np = { id: p.id || uid(), coursUid: p.coursUid || "", titre: $("#fp-titre").value.trim(), matiere: $("#fp-mat").value, date: $("#fp-date").value, heureDebut: $("#fp-h1").value, heureFin: $("#fp-h2").value, salle: $("#fp-salle").value.trim(), note: $("#fp-note").value.trim() };
 		if (!np.titre || !np.date) return;
 		fermerFeuille();
 		action(() => modifier("partiels.json", "partiels", (l) => { const i = l.findIndex((x) => x.id === np.id); if (i >= 0) l[i] = np; else l.push(np); return l; }, `Partiel : ${np.titre}`));
@@ -522,7 +522,8 @@ function detailCours(e) {
 			${[["Type", e.type], ["Salle", e.salle], ["Intervenants", e.profs], ["Module", e.module], ["Groupes", e.groupes], ["Matière", mat || "non classée"]].filter((x) => x[1]).map(([k, v]) => `<div class="ligne"><div class="heure">${k}</div><div class="corps">${h(v)}</div></div>`).join("")}
 		</div>
 		${liees.length ? `<h2 class="petit" style="margin-top:14px">TÂCHES LIÉES</h2><div class="carte">${liees.map(ligneTache).join("")}</div>` : ""}
-		<div class="actions"><button class="bouton" data-fermer>Fermer</button><button class="bouton plein" data-tache-cours="${h(e.uid)}">+ Tâche pour ce cours</button></div>`);
+		<div class="actions"><button class="bouton" data-fermer>Fermer</button><button class="bouton plein" data-tache-cours="${h(e.uid)}">+ Tâche pour ce cours</button></div>
+		${e.examen ? "" : `<button class="bouton large" style="margin-top:10px" data-partiel-cours="${h(e.uid)}">🎓 Ajouter comme partiel</button>`}`);
 }
 
 // ---------- Rendu et évènements ----------
@@ -550,7 +551,7 @@ async function enregistrerToken(val) {
 }
 
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder]");
+	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours]");
 	if (!el) return;
 	const d = el.dataset;
 	if ("fermer" in d) return fermerFeuille();
@@ -576,10 +577,16 @@ document.addEventListener("click", (e) => {
 		const id = d.garder;
 		return action(() => modifier("tasks.json", "tasks", (l) => l.map((x) => x.id !== id ? x : { ...x, coursLie: { ...x.coursLie, ignore: true } }), "Tâche conservée"));
 	}
+	if (d.partielCours) {
+		const ev = cours().find((x) => x.uid === d.partielCours);
+		if (!ev) return;
+		fermerFeuille();
+		return formPartiel({ titre: ev.titre, matiere: matiereDe(ev), date: jourCle(ev.debut), heureDebut: ev.journee ? "" : heure(ev.debut), heureFin: ev.journee ? "" : heure(ev.fin), salle: salle(ev.salle), coursUid: ev.uid });
+	}
 	if (d.tacheCours) {
 		const ev = cours().find((x) => x.uid === d.tacheCours);
 		fermerFeuille();
-		return formTache({}, { matiere: matiereDe(ev), coursUid: ev.uid, module: ev.module, titre: "" });
+		return formTache({}, { matiere: matiereDe(ev), coursUid: ev.uid, module: ev.module, titre: "", echeance: ev.journee ? jourCle(ev.debut) : ev.debut });
 	}
 	if (d.copier) { navigator.clipboard?.writeText(d.copier).then(() => alerteDouce("Lien copié."), () => {}); return; }
 	if ("recharger" in d) return charger().then(() => alerteDouce("À jour."));
