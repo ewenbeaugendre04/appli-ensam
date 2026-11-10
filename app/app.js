@@ -170,8 +170,12 @@ const appartient = (lib, cible) => lib === cible || lib.startsWith(cible + " / "
 // ---------- Données dérivées ----------
 const cours = () => S.data.events.events || [];
 function partielsTous() {
-	const lise = cours().filter((e) => e.examen).map((e) => ({ id: "lise-" + e.uid, titre: e.titre, debut: e.debut, salle: e.salle, matiere: matiereDe(e), type: e.type, source: "Lise" }));
-	const perso = (S.data.partiels || []).map((p) => ({ ...p, debut: p.heureDebut ? parisIso(p.date, p.heureDebut) : p.date + "T00:00:00", source: "perso" }));
+	const surcharges = (S.data.partiels || []).filter((p) => p.liseUid);
+	const lise = cours().filter((e) => e.examen).map((e) => {
+		const ov = surcharges.find((p) => p.liseUid === e.uid) || {};
+		return { id: "lise-" + e.uid, liseUid: e.uid, titre: ov.titre || e.titre, debut: e.debut, fin: e.fin, salle: e.salle, matiere: ov.matiere || matiereDe(e), type: e.type, description: ov.description || "", chapitres: ov.chapitres || null, surchargeId: ov.id || "", source: "Lise" };
+	});
+	const perso = (S.data.partiels || []).filter((p) => !p.liseUid && p.date).map((p) => ({ ...p, debut: p.heureDebut ? parisIso(p.date, p.heureDebut) : p.date + "T00:00:00", source: "perso" }));
 	return [...lise, ...perso].sort((a, b) => a.debut.localeCompare(b.debut));
 }
 const echeanceCle = (t) => (t.echeance ? (t.echeance.length > 10 ? jourCle(t.echeance) : t.echeance) : "9999-12-31");
@@ -203,9 +207,9 @@ function ligneTache(t) {
 }
 function lignePartiel(p) {
 	const n = joursEntre(auj(), jourCle(p.debut));
-	return `<div class="ligne ${p.source === "perso" ? "cliquable" : ""}" ${p.source === "perso" ? `data-partiel="${h(p.id)}"` : ""}>
+	return `<div class="ligne cliquable" data-partiel-voir="${h(p.id)}">
 		<div class="compte ${n >= 0 && n <= 7 ? "proche" : ""}"><b>${n < 0 ? "✓" : n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div>
-		<div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${[p.debut.length > 10 && !p.debut.endsWith("T00:00:00") ? heure(p.debut) : "", salle(p.salle), p.matiere, p.type].filter(Boolean).map(h).join(" · ")}</div></div></div>`;
+		<div class="corps"><div class="t">${h(p.titre)}</div>${p.description ? `<div class="s">📋 ${h(p.description.slice(0, 70))}${p.description.length > 70 ? "…" : ""}</div>` : ""}<div class="s">${[p.debut.length > 10 && !p.debut.endsWith("T00:00:00") ? heure(p.debut) : "", salle(p.salle), p.matiere, p.type].filter(Boolean).map(h).join(" · ")}</div></div></div>`;
 }
 function dansCombien(iso) {
 	const min = Math.round((Date.parse(iso) - Date.now()) / 60e3);
@@ -491,30 +495,58 @@ function formTache(t = {}, prefill = {}) {
 	setTimeout(() => $("#ft-titre")?.focus(), 50);
 }
 
+function choixChapitres(p) {
+	const chs = Object.values(R.chap || {}).filter((c) => !c.partiel);
+	const choisis = new Set(p.chapitres || chapitresAuto(p.matiere).map((c) => c.id));
+	const parUe = {};
+	chs.forEach((c) => (parUe[c.ue] ||= []).push(c));
+	return Object.entries(parUe).map(([ue, l]) => `<div class="section-titre" style="margin-top:10px">${h(ue)}</div>${l.map((c) => `<label class="choix"><input type="checkbox" name="fp-ch" value="${h(c.id)}" ${choisis.has(c.id) ? "checked" : ""}><span>${h(c.titre)}</span></label>`).join("")}`).join("") || '<p class="petit">Aucun chapitre de révision pour l\'instant.</p>';
+}
 function formPartiel(p = {}) {
+	const lise = !!p.liseUid;
 	const opts = ['<option value="">— Aucune —</option>', ...listeMatieres().map((l) => `<option ${l === p.matiere ? "selected" : ""}>${h(l)}</option>`)].join("");
-	ouvrirFeuille(`<h3>${p.id ? "Modifier le partiel" : "Nouveau partiel"}</h3>
+	const perso = Array.isArray(p.chapitres) && p.chapitres.length > 0;
+	ouvrirFeuille(`<h3>${p.id && !lise ? "Modifier le partiel" : lise ? "Personnaliser le partiel" : "Nouveau partiel"}</h3>
+		${lise ? `<p class="petit">Partiel venant de Lise : la date et l'heure se mettent à jour toutes seules.</p>` : ""}
 		<form id="f-partiel">
 			<label for="fp-titre">Intitulé</label><input id="fp-titre" type="text" required value="${h(p.titre || "")}" placeholder="Partiel MMC">
 			<label for="fp-mat">Matière</label><select id="fp-mat">${opts}</select>
-			<label for="fp-date">Date</label><input id="fp-date" type="date" required value="${h(p.date || "")}">
+			${lise ? "" : `<label for="fp-date">Date</label><input id="fp-date" type="date" required value="${h(p.date || "")}">
 			<div class="rang"><div><label for="fp-h1">Début</label><input id="fp-h1" type="time" value="${h(p.heureDebut || "")}"></div><div><label for="fp-h2">Fin</label><input id="fp-h2" type="time" value="${h(p.heureFin || "")}"></div></div>
-			<label for="fp-salle">Salle</label><input id="fp-salle" type="text" value="${h(p.salle || "")}">
-			<label for="fp-note">Note</label><textarea id="fp-note">${h(p.note || "")}</textarea>
-			<div class="actions">${p.id ? '<button type="button" class="bouton danger" data-suppr-partiel>Supprimer</button>' : '<button type="button" class="bouton" data-fermer>Annuler</button>'}<button class="bouton plein">Enregistrer</button></div>
+			<label for="fp-salle">Salle</label><input id="fp-salle" type="text" value="${h(p.salle || "")}">`}
+			<label for="fp-desc">Ce qui tombe (attendus, consignes du prof, documents autorisés…)</label>
+			<textarea id="fp-desc" placeholder="Ex. : chapitres 1 à 3, flexion et torsion, calculatrice autorisée, un exercice de Castigliano…">${h(p.description || "")}</textarea>
+			<label>Contenu du module de révision</label>
+			<label class="choix"><input type="radio" name="fp-mode" value="auto" ${perso ? "" : "checked"}><span><b>Automatique</b><br><span class="petit">Tous les chapitres de la matière choisie</span></span></label>
+			<label class="choix"><input type="radio" name="fp-mode" value="choix" ${perso ? "checked" : ""}><span><b>Je choisis</b><br><span class="petit">Coche les chapitres au programme</span></span></label>
+			<div id="fp-chs" ${perso ? "" : "hidden"}>${choixChapitres(p)}</div>
+			<div class="actions">${p.id && !lise ? '<button type="button" class="bouton danger" data-suppr-partiel>Supprimer</button>' : '<button type="button" class="bouton" data-fermer>Annuler</button>'}<button class="bouton plein">Enregistrer</button></div>
 		</form>`);
 	const f = $("#f-partiel");
+	f.querySelectorAll('[name="fp-mode"]').forEach((r) => r.addEventListener("change", () => { $("#fp-chs").hidden = f.querySelector('[name="fp-mode"]:checked').value !== "choix"; }));
+	$("#fp-mat").addEventListener("change", () => { if (f.querySelector('[name="fp-mode"]:checked').value === "auto") $("#fp-chs").innerHTML = choixChapitres({ matiere: $("#fp-mat").value }); });
 	f.querySelector("[data-suppr-partiel]")?.addEventListener("click", () => {
 		if (!confirm("Supprimer ce partiel ?")) return;
 		fermerFeuille();
+		R.partiel = null;
 		action(() => modifier("partiels.json", "partiels", (l) => l.filter((x) => x.id !== p.id), `Suppression partiel : ${p.titre}`));
 	});
 	f.addEventListener("submit", (e) => {
 		e.preventDefault();
-		const np = { id: p.id || uid(), coursUid: p.coursUid || "", titre: $("#fp-titre").value.trim(), matiere: $("#fp-mat").value, date: $("#fp-date").value, heureDebut: $("#fp-h1").value, heureFin: $("#fp-h2").value, salle: $("#fp-salle").value.trim(), note: $("#fp-note").value.trim() };
-		if (!np.titre || !np.date) return;
+		const mode = f.querySelector('[name="fp-mode"]:checked').value;
+		const chapitres = mode === "choix" ? [...f.querySelectorAll('[name="fp-ch"]:checked')].map((c) => c.value) : null;
+		const commun = { titre: $("#fp-titre").value.trim(), matiere: $("#fp-mat").value, description: $("#fp-desc").value.trim(), chapitres };
+		const np = lise
+			? { id: p.surchargeId || uid(), liseUid: p.liseUid, ...commun }
+			: { id: p.id || uid(), coursUid: p.coursUid || "", ...commun, date: $("#fp-date").value, heureDebut: $("#fp-h1").value, heureFin: $("#fp-h2").value, salle: $("#fp-salle").value.trim(), note: p.note || "" };
+		if (!np.titre || (!lise && !np.date)) return;
 		fermerFeuille();
-		action(() => modifier("partiels.json", "partiels", (l) => { const i = l.findIndex((x) => x.id === np.id); if (i >= 0) l[i] = np; else l.push(np); return l; }, `Partiel : ${np.titre}`));
+		action(async () => {
+			await modifier("partiels.json", "partiels", (l) => { const i = l.findIndex((x) => x.id === np.id); if (i >= 0) l[i] = np; else l.push(np); return l; }, `Partiel : ${np.titre}`);
+			R.partiel = lise ? "lise-" + p.liseUid : np.id;
+			R.session = null; R.ouvert = null;
+			location.hash = "#reviser";
+		});
 	});
 }
 
@@ -557,13 +589,14 @@ async function enregistrerToken(val) {
 }
 
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours]");
+	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours],[data-partiel-voir]");
 	if (!el) return;
 	const d = el.dataset;
 	if ("fermer" in d) return fermerFeuille();
 	if (d.cours) { const ev = cours().find((x) => x.uid === d.cours); if (ev) detailCours(ev); return; }
 	if (d.tache) { const t = S.data.tasks.find((x) => x.id === d.tache); if (t) formTache(t); return; }
 	if (d.partiel) { const p = S.data.partiels.find((x) => x.id === d.partiel); if (p) formPartiel(p); return; }
+	if (d.partielVoir) { R.partiel = d.partielVoir; R.session = null; R.ouvert = null; fermerFeuille(); if (location.hash !== "#reviser") location.hash = "#reviser"; else rendre(); window.scrollTo(0, 0); return; }
 	if (d.semaine !== undefined) { S.semaine = d.semaine === "0" ? 0 : S.semaine + Number(d.semaine); return rendre(); }
 	if (d.seg) { S.segTaches = d.seg; return rendre(); }
 	if ("nouveauPartiel" in d) return formPartiel();
@@ -621,7 +654,7 @@ document.addEventListener("toggle", (e) => { if (e.target.matches?.("[data-faite
 
 $("#btn-ajout").addEventListener("click", () => (S.vue === "taches" && S.segTaches === "partiels" ? formPartiel() : formTache()));
 window.addEventListener("hashchange", () => { window.scrollTo(0, 0); rendre(); });
-document.querySelector('#onglets a[data-v="reviser"]').addEventListener("click", () => { if (S.vue === "reviser" && !R.session) { R.ouvert = null; rendre(); } });
+document.querySelector('#onglets a[data-v="reviser"]').addEventListener("click", () => { if (S.vue === "reviser" && !R.session) { R.ouvert = null; R.partiel = null; rendre(); } });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") charger(); });
 window.addEventListener("online", () => charger());
 setInterval(() => { if (document.visibilityState === "visible") charger(); }, 5 * 60e3);

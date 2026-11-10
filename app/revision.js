@@ -7,6 +7,7 @@ const R = {
 	chap: {}, // id → chapitre
 	session: null, // { titre, cles:[], i, repondu }
 	ouvert: null, // id du chapitre affiché
+	partiel: null, // id du partiel affiché
 	brouillons: null,
 	chrono: null,
 };
@@ -76,6 +77,26 @@ function maitrise(ch) {
 function partielDe(ch) {
 	const p = partielsTous().find((x) => jourCle(x.debut) >= auj() && x.matiere && appartient(x.matiere, ch.ue));
 	return p ? joursEntre(auj(), jourCle(p.debut)) : null;
+}
+
+// ---------- Partiels ----------
+function chapitresAuto(matiere) {
+	if (!matiere) return [];
+	const [ue, sous] = matiere.split(" / ");
+	const chs = Object.values(R.chap).filter((c) => !c.partiel && c.ue === ue);
+	const precis = sous ? chs.filter((c) => norm(c.matiere) === norm(sous)) : [];
+	return precis.length ? precis : chs;
+}
+function chapitresPartiel(p) {
+	const base = Array.isArray(p.chapitres) && p.chapitres.length ? p.chapitres.map((id) => R.chap[id]).filter(Boolean) : chapitresAuto(p.matiere);
+	const dedie = Object.values(R.chap).find((c) => c.partiel === p.id);
+	return dedie ? [dedie, ...base] : base;
+}
+const trouverPartiel = (id) => partielsTous().find((p) => p.id === id);
+function preparation(chs) {
+	const its = chs.flatMap((ch) => (ch.items || []).filter((it) => RECALL.includes(it.type) || EXOS.includes(it.type)).map((it) => cle(ch.id, it.id)));
+	if (!its.length) return 0;
+	return Math.round((100 * its.reduce((a, k) => a + Math.min(1, ((S.data.progres[k] || {}).boite || 0) / 3), 0)) / its.length);
 }
 
 // ---------- Texte et formules ----------
@@ -230,8 +251,9 @@ function notation(k) {
 function vueReviser() {
 	R.notes = {};
 	if (R.session) return vueSession();
+	if (R.partiel) { const p = trouverPartiel(R.partiel); if (p) return vuePartiel(p); R.partiel = null; }
 	if (R.ouvert && R.chap[R.ouvert]) return vueChapitre(R.chap[R.ouvert]);
-	const chs = Object.values(R.chap);
+	const chs = Object.values(R.chap).filter((c) => !c.partiel);
 	if (!chs.length) return `<section class="carte"><h2>Révisions</h2><p class="vide">Aucun chapitre pour l'instant. Les contenus sont générés à partir de tes cours GoodNotes.</p></section>`;
 	const dus = tousItems().filter((x) => (RECALL.includes(x.it.type) || EXOS.includes(x.it.type)) && estDu(x.k));
 	const rendus = (S.data.revision.rendus || []).slice().sort((a, b) => b.date.localeCompare(a.date));
@@ -244,7 +266,8 @@ function vueReviser() {
 				<div class="nom">${dus.length ? `${Math.min(25, dus.length)} à revoir aujourd'hui` : "Tout est à jour 🎉"}</div>
 				<div class="info">${dus.length ? `Session de 25 max (${dus.length} en attente au total). Ce que tu oublies revient plus souvent.` : "Lance une session mélangée pour t'entraîner."}</div>
 			</div>
-			<div class="rang"><button class="bouton large" data-r-session="melange">🔀 Session mélangée</button><button class="bouton large" data-r-session="partiel">🎯 Prochain partiel</button></div>
+			<div class="rang"><button class="bouton large" data-r-session="melange">🔀 Session mélangée</button><button class="bouton large" data-r-prochain-partiel>🎯 Prochain partiel</button></div>
+			${(() => { const ps = partielsTous().filter((p) => jourCle(p.debut) >= auj()).slice(0, 5); return ps.length ? `<section class="carte"><h2>Mes partiels</h2>${ps.map((p) => { const n = joursEntre(auj(), jourCle(p.debut)), pr = preparation(chapitresPartiel(p)); return `<div class="ligne cliquable" data-partiel-voir="${h(p.id)}"><div class="compte ${n <= 7 ? "proche" : ""}"><b>${n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div><div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${h(p.matiere || "matière à préciser")}${p.description ? " · 📋 attendus" : ""}</div><div class="r-barre"><span style="width:${pr}%"></span></div></div><div class="petit">${pr}%</div></div>`; }).join("")}</section>` : ""; })()}
 			${rendus.length ? `<section class="carte"><h2>Mes rendus</h2>${rendus.slice(0, 5).map((r) => { const x = item(r.cle); return `<div class="ligne cliquable" data-r-ouvrir="${h(r.cle.split(":")[0])}"><div class="corps"><div class="t">${h(x?.it ? TYPES[x.it.type] + " · " + (x.ch.titre) : r.cle)}</div><div class="s">${r.statut === "en_attente" ? "⏳ En attente de validation" : r.statut === "valide" ? "✅ Validé" : "✏️ À retravailler"}${r.note != null ? ` · ${h(r.note)}/10` : ""}</div></div></div>`; }).join("")}</section>` : ""}
 		</div>
 		<div class="grille">${Object.entries(parUe).map(([ue, liste]) => `<section class="carte"><h2>${h(ue)} · ${h(ues().find((u) => u.code === ue)?.nom || "")}</h2>${liste.map((ch) => {
@@ -254,6 +277,36 @@ function vueReviser() {
 				<div class="r-barre"><span style="width:${m}%"></span></div></div><div class="petit">${m}%</div></div>`;
 		}).join("")}</section>`).join("")}</div>
 	</div>`;
+}
+
+function vuePartiel(p) {
+	const chs = chapitresPartiel(p), pr = preparation(chs), n = joursEntre(auj(), jourCle(p.debut));
+	const dedie = chs.find((c) => c.partiel === p.id);
+	const perso = Array.isArray(p.chapitres) && p.chapitres.length;
+	return `<button class="bouton petit-b" data-r-retour>‹ Révisions</button>
+		<div class="hero" style="margin-top:12px;--c:${couleur(p.matiere)}">
+			<span class="dans">${n < 0 ? "Passé" : n === 0 ? "Aujourd'hui" : "J-" + n}</span>
+			<div class="eti">Partiel${p.type ? " · " + h(p.type) : ""}</div>
+			<div class="nom">${h(p.titre)}</div>
+			<div class="info">${h(fmt(p.debut, { weekday: "long", day: "numeric", month: "long" }))}${p.debut.endsWith("T00:00:00") ? "" : " · " + heure(p.debut)}${p.salle ? " · " + h(salle(p.salle)) : ""}${p.matiere ? " · " + h(p.matiere) : ""}</div>
+		</div>
+		<section class="carte" style="margin-top:14px"><h2>Ce qui tombe</h2>
+			${p.description ? `<div class="r-md">${md(p.description)}</div>` : '<p class="vide">Pas encore précisé. Ajoute les attendus pour un module sur mesure.</p>'}
+			<div class="r-actions"><button class="bouton petit-b" data-r-modif-partiel="${h(p.id)}">✏️ ${p.description ? "Modifier" : "Préciser"} le partiel</button></div>
+		</section>
+		<section class="carte" style="margin-top:14px"><h2>Préparation · ${pr}%</h2>
+			<div class="r-barre"><span style="width:${pr}%"></span></div>
+			<div class="r-actions" style="margin-top:12px">
+				<button class="bouton plein" data-r-session="partiel:${h(p.id)}:tout">🎯 Session de révision</button>
+				<button class="bouton" data-r-session="partiel:${h(p.id)}:cartes">🃏 Cartes</button>
+				<button class="bouton" data-r-session="partiel:${h(p.id)}:exos">✍️ Exercices</button>
+				<button class="bouton" data-r-session="partiel:${h(p.id)}:blanc">📝 Test blanc</button>
+			</div>
+		</section>
+		<section class="carte" style="margin-top:14px"><h2>Au programme ${perso ? "(choisi par toi)" : "(automatique)"}</h2>
+			${chs.length ? chs.map((ch) => { const m = maitrise(ch); return `<div class="ligne barre cliquable" style="--c:${couleur(ch.ue)}" data-r-ouvrir="${h(ch.id)}"><div class="corps"><div class="t">${ch.partiel ? "⭐ " : ""}${h(ch.titre)}</div><div class="s">${ch.partiel ? "Module généré à partir des attendus" : h(ch.ue + (ch.matiere ? " / " + ch.matiere : ""))}</div><div class="r-barre"><span style="width:${m}%"></span></div></div><div class="petit">${m}%</div></div>`; }).join("") : '<p class="vide">Aucun chapitre ne correspond. Touche « Préciser le partiel » pour choisir la matière ou les chapitres.</p>'}
+			${p.description && !dedie ? '<p class="petit" style="margin-top:10px">⏳ Un module d\'exercices ciblés sur tes attendus sera généré cette nuit.</p>' : ""}
+		</section>`;
 }
 
 function vueChapitre(ch) {
@@ -314,6 +367,18 @@ function demarrerSession(type) {
 		const poids = (x) => { const j = partielDe(x.ch); return (j != null ? 30 / (1 + j) : 0) + Math.random() * 2 + (EXOS.includes(x.it.type) ? 1 : 0); };
 		liste = tousItems().filter(travail).sort((a, b) => poids(b) - poids(a)).slice(0, 12);
 		liste = melanger(liste);
+	} else if (type.startsWith("partiel:")) {
+		const [, pid, mode] = type.split(":");
+		const p = trouverPartiel(pid);
+		if (!p) return;
+		const chs = chapitresPartiel(p);
+		let l = chs.flatMap((ch) => (ch.items || []).map((it) => ({ ch, it, k: cle(ch.id, it.id) })));
+		const boite = (x) => (S.data.progres[x.k] || {}).boite || 0;
+		if (mode === "cartes") { titre = "Cartes · " + p.titre; l = melanger(l.filter((x) => RECALL.includes(x.it.type))).sort((a, b) => boite(a) - boite(b)).slice(0, 30); }
+		else if (mode === "exos") { titre = "Exercices · " + p.titre; l = melanger(l.filter((x) => EXOS.includes(x.it.type))).slice(0, 20); }
+		else if (mode === "blanc") { titre = "Test blanc · " + p.titre; l = melanger(l.filter((x) => ["qcm", "trous", "calcul"].includes(x.it.type))).slice(0, 15); }
+		else { titre = p.titre; l = l.filter(travail).sort((a, b) => boite(a) - boite(b) + (Math.random() - 0.5) * 2).slice(0, 25); l = melanger(l); }
+		liste = l;
 	} else if (type === "partiel") {
 		const prochains = partielsTous().filter((p) => jourCle(p.debut) >= now && p.matiere);
 		const ue = prochains.map((p) => p.matiere.split(" / ")[0]).find((u) => Object.values(R.chap).some((c) => c.ue === u));
@@ -397,12 +462,20 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- Évènements ----------
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-r-ouvrir],[data-r-retour],[data-r-session],[data-r-fin],[data-r-suivant],[data-r-montrer],[data-r-note],[data-r-qcm],[data-r-trous],[data-r-calcul],[data-r-solution],[data-r-indice],[data-r-comparer],[data-r-envoyer],[data-r-claude-txt],[data-r-chrono]");
+	const el = e.target.closest("[data-r-ouvrir],[data-r-retour],[data-r-session],[data-r-prochain-partiel],[data-r-modif-partiel],[data-r-fin],[data-r-suivant],[data-r-montrer],[data-r-note],[data-r-qcm],[data-r-trous],[data-r-calcul],[data-r-solution],[data-r-indice],[data-r-comparer],[data-r-envoyer],[data-r-claude-txt],[data-r-chrono]");
 	if (!el) return;
 	const d = el.dataset;
 	if (d.rOuvrir) { R.ouvert = d.rOuvrir; R.session = null; location.hash = "#reviser"; rendre(); window.scrollTo(0, 0); return; }
-	if ("rRetour" in d) { R.ouvert = null; rendre(); return; }
+	if ("rRetour" in d) { if (R.ouvert) R.ouvert = null; else R.partiel = null; rendre(); window.scrollTo(0, 0); return; }
 	if (d.rSession) return demarrerSession(d.rSession);
+	if ("rProchainPartiel" in d) { const p = partielsTous().find((x) => jourCle(x.debut) >= auj()); if (!p) { alerteDouce("Aucun partiel à venir."); return; } R.partiel = p.id; rendre(); window.scrollTo(0, 0); return; }
+	if (d.rModifPartiel) {
+		const p = trouverPartiel(d.rModifPartiel);
+		if (!p) return;
+		if (p.source === "Lise") formPartiel({ liseUid: p.liseUid, surchargeId: p.surchargeId, titre: p.titre, matiere: p.matiere, description: p.description, chapitres: p.chapitres });
+		else formPartiel(S.data.partiels.find((x) => x.id === p.id));
+		return;
+	}
 	if ("rFin" in d) { R.session = null; rendre(); window.scrollTo(0, 0); return; }
 	if ("rSuivant" in d) { R.session.i++; R.session.repondu = false; rendre(); window.scrollTo(0, 0); return; }
 	const k = d.rMontrer || d.rNote || d.rQcm || d.rTrous || d.rCalcul || d.rSolution || d.rIndice || d.rComparer || d.rEnvoyer || d.rClaudeTxt || d.rChrono;

@@ -214,7 +214,8 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 		}
 		L.push(`SUMMARY:${esc("🎓 Partiel · " + (p.titre || p.matiere || ""))}`);
 		if (p.salle) L.push(`LOCATION:${esc(p.salle)}`);
-		if (p.note) L.push(`DESCRIPTION:${esc(p.note)}`);
+		const descP = [p.description, p.note].filter(Boolean).join("\n");
+		if (descP) L.push(`DESCRIPTION:${esc(descP)}`);
 		L.push(...alarm("-P7D", `Partiel dans 7 jours : ${p.titre}`), ...alarm("-P1D", `Partiel demain : ${p.titre}`));
 		L.push("END:VEVENT");
 	}
