@@ -127,29 +127,6 @@ function lienClaude(ch, it, extra = "") {
 const boutonClaude = (ch, it, extra) => `<a class="bouton petit-b r-claude" href="${h(lienClaude(ch, it, extra))}" target="_blank" rel="noopener" data-r-claude="${h(cle(ch.id, it.id))}">✦ Résoudre avec Claude</a>`;
 
 
-// ---------- Audio (synthèse vocale de l'appareil) ----------
-function texteOral(t = "") {
-	return String(t)
-		.replace(/\\(d|t)?frac\{([^{}]*)\}\{([^{}]*)\}/g, " $2 sur $3 ")
-		.replace(/\^\{?2\}?/g, " au carré").replace(/\^\{?3\}?/g, " au cube").replace(/\^\{?4\}?/g, " puissance 4")
-		.replace(/\\(sigma|varepsilon|epsilon|tau|theta|gamma|lambda|mu|nu|eta|rho|alpha|omega|varphi|phi|Delta|delta|pi|chi)/g, (_, g) => ({ varepsilon: "epsilon", varphi: "phi", Delta: "delta" }[g] || g) + " ")
-		.replace(/\\(cdot|times)/g, " fois ").replace(/\\(le|leq)/g, " inférieur ou égal à ").replace(/\\(ge|geq)/g, " supérieur ou égal à ").replace(/\\approx/g, " environ ")
-		.replace(/_\{([^{}]*)\}/g, " $1").replace(/_(\w)/g, " $1")
-		.replace(/\\[a-zA-Z]+/g, " ").replace(/[{}$#*\\]/g, " ").replace(/\s+/g, " ").trim();
-}
-function ecouter(texte, bouton) {
-	if (!("speechSynthesis" in window)) { alerteDouce("La lecture audio n'est pas disponible sur cet appareil."); return; }
-	if (speechSynthesis.speaking) { speechSynthesis.cancel(); if (bouton) bouton.textContent = "🎧 Écouter"; return; }
-	const u = new SpeechSynthesisUtterance(texteOral(texte));
-	u.lang = "fr-FR";
-	u.rate = 1;
-	const v = speechSynthesis.getVoices().find((x) => x.lang?.startsWith("fr") && /premium|enhanced|amélioré/i.test(x.name)) || speechSynthesis.getVoices().find((x) => x.lang?.startsWith("fr"));
-	if (v) u.voice = v;
-	u.onend = () => { if (bouton) bouton.textContent = "🎧 Écouter"; };
-	if (bouton) bouton.textContent = "⏹ Arrêter";
-	speechSynthesis.speak(u);
-}
-
 // ---------- Photo d'une résolution (compressée avant envoi) ----------
 R.photos = {};
 function compresserImage(fichier, max = 1600) {
@@ -181,7 +158,7 @@ function carteItem(ch, it, mode = "liste") {
 	switch (it.type) {
 		case "fiche":
 			return `<div class="r-carte">${tete}<h3>${h(it.titre)}</h3><div class="r-md">${md(it.contenu)}</div>
-				<div class="r-actions"><button class="bouton petit-b" data-r-ecouter="${h(k)}">🎧 Écouter</button></div>${src(it, ch)}</div>`;
+${src(it, ch)}</div>`;
 		case "equation":
 			if (mode === "session") return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}
 				<p>Écris la formule de tête, puis vérifie.</p><div class="r-cache" id="v-${h(k)}" hidden>${formuleBloc(it)}</div>
@@ -291,7 +268,6 @@ function vueChapitre(ch) {
 				<button class="bouton plein" data-r-session="cartes:${h(ch.id)}">🃏 Cartes</button>
 				<button class="bouton plein" data-r-session="exos:${h(ch.id)}">✍️ Exercices</button>
 				<button class="bouton" data-r-session="tout:${h(ch.id)}">Tout le chapitre</button>
-				<button class="bouton" data-r-ecouter-defs="${h(ch.id)}">🎧 Écouter les définitions</button>
 			</div>
 		</div>
 		${bloc("Fiche mémo", par("fiche"))}
@@ -468,13 +444,6 @@ document.addEventListener("click", (e) => {
 		R.chrono = setInterval(() => { reste--; if (aff) aff.textContent = `${Math.floor(reste / 60)}:${String(reste % 60).padStart(2, "0")}`; if (reste <= 0) { clearInterval(R.chrono); if (aff) aff.textContent = "⏰ Temps écoulé : compare !"; } }, 1000);
 		return;
 	}
-});
-document.addEventListener("click", (e) => {
-	const b = e.target.closest("[data-r-ecouter],[data-r-ecouter-defs]");
-	if (!b) return;
-	if (b.dataset.rEcouter) { const x = item(b.dataset.rEcouter); if (x?.it) ecouter(`${x.it.titre}. ${x.it.contenu}`, b); return; }
-	const ch = R.chap[b.dataset.rEcouterDefs];
-	if (ch) ecouter((ch.items || []).filter((i) => i.type === "definition").map((i) => `${i.terme}. ${i.definition}`).join(". "), b);
 });
 document.addEventListener("change", async (e) => {
 	const k = e.target.dataset?.rPhoto;
