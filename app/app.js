@@ -92,14 +92,15 @@ async function ecrire(path, data, message) {
 	return true;
 }
 // Modifie un fichier JSON de façon sûre même si l'autre appareil l'a changé entre-temps
-async function modifier(path, cle, fn, message) {
+async function modifier(path, cle, fn, message, opts = {}) {
+	const defaut = opts.defaut ?? (cle === "config" ? {} : []);
 	for (let essai = 0; essai < 3; essai++) {
-		const actuel = await lire(path, cle === "config" ? {} : []);
+		const actuel = await lire(path, defaut);
 		const nouveau = fn(structuredClone(actuel));
 		if (await ecrire(path, nouveau, message)) {
-			S.data[cle] = nouveau;
+			if (opts.cible) S.data[opts.cible][cle] = nouveau; else S.data[cle] = nouveau;
 			sauverCache();
-			relancerSynchro();
+			if (!opts.sansSynchro) relancerSynchro();
 			return;
 		}
 	}
@@ -121,8 +122,9 @@ async function charger() {
 		const [config, tasks, partiels, events] = await Promise.all([
 			lire("config.json", {}), lire("tasks.json", []), lire("partiels.json", []), lire("events.json", { events: [] }),
 		]);
-		S.data = { config, tasks, partiels, events };
+		S.data = { ...S.data, config, tasks, partiels, events };
 		S.horsLigne = false;
+		await chargerRevision().catch(() => {});
 		sauverCache();
 	} catch (err) {
 		if (err.auth) { bandeau("Code d'accès refusé ou expiré : mets-le à jour dans Réglages."); }
@@ -130,6 +132,8 @@ async function charger() {
 		return;
 	}
 	bandeau(null);
+	// Ne pas effacer une réponse en cours de saisie pendant une révision
+	if (S.vue === "reviser" && (R.session || R.ouvert)) return;
 	rendre();
 }
 
@@ -286,6 +290,7 @@ function feuilleReattribuer(t) {
 
 // ---------- Vues ----------
 const VUES = {
+	reviser: () => vueReviser(),
 	accueil() {
 		const aujCle = auj();
 		const verifs = verifications();
@@ -433,7 +438,7 @@ function ecranConnexion() {
 }
 
 // ---------- Feuilles (formulaires) ----------
-function ouvrirFeuille(html) { $("#feuille-corps").innerHTML = html; $("#feuille").hidden = false; }
+function ouvrirFeuille(html) { $("#feuille-corps").innerHTML = html; $("#feuille").hidden = false; formules($("#feuille-corps")); }
 function fermerFeuille() { $("#feuille").hidden = true; $("#feuille-corps").innerHTML = ""; }
 
 function formTache(t = {}, prefill = {}) {
@@ -527,15 +532,16 @@ function detailCours(e) {
 }
 
 // ---------- Rendu et évènements ----------
-const TITRES = { accueil: "Accueil", agenda: "Agenda", taches: "Tâches", matieres: "Matières", reglages: "Réglages" };
+const TITRES = { accueil: "Accueil", agenda: "Agenda", taches: "Tâches", reviser: "Réviser", matieres: "Matières", reglages: "Réglages" };
 function rendre() {
 	const v = (location.hash.slice(1) || "accueil");
 	S.vue = VUES[v] ? v : "accueil";
 	$("#titre").textContent = TITRES[S.vue];
 	document.querySelectorAll("#onglets a").forEach((a) => a.classList.toggle("actif", a.dataset.v === S.vue));
-	$("#btn-ajout").hidden = !S.token;
+	$("#btn-ajout").hidden = !S.token || S.vue === "reviser";
 	$("#onglets").hidden = !S.token;
 	$("#vue").innerHTML = S.token ? VUES[S.vue]() : ecranConnexion();
+	formules($("#vue"));
 }
 
 async function enregistrerToken(val) {
@@ -615,10 +621,13 @@ document.addEventListener("toggle", (e) => { if (e.target.matches?.("[data-faite
 
 $("#btn-ajout").addEventListener("click", () => (S.vue === "taches" && S.segTaches === "partiels" ? formPartiel() : formTache()));
 window.addEventListener("hashchange", () => { window.scrollTo(0, 0); rendre(); });
+document.querySelector('#onglets a[data-v="reviser"]').addEventListener("click", () => { if (S.vue === "reviser" && !R.session) { R.ouvert = null; rendre(); } });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") charger(); });
 window.addEventListener("online", () => charger());
 setInterval(() => { if (document.visibilityState === "visible") charger(); }, 5 * 60e3);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+initRevisionCache();
 rendre();
 charger();
+window.addEventListener("katex", () => formules($("#vue")));
