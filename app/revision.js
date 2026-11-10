@@ -178,16 +178,16 @@ ${src(it, ch)}</div>`;
 				<div class="r-retour" id="r-${h(k)}"></div><div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
 		case "trous": {
 			let n = 0;
-			const html = h(it.texte).replace(/\[\[(.+?)\]\]/g, (_, rep) => `<input class="r-trou" data-rep="${rep}" data-n="${n++}" size="${Math.max(4, rep.split("|")[0].length)}" autocomplete="off" autocapitalize="off" spellcheck="false">`);
+			const html = h(it.texte).replace(/\[\[(.+?)\]\]/g, (_, rep) => `<input class="r-trou" data-rep="${rep}" data-n="${n++}" data-r-trou-de="${h(k)}" enterkeyhint="next" size="${Math.max(4, rep.split("|")[0].length)}" autocomplete="off" autocapitalize="off" spellcheck="false">`);
 			return `<div class="r-carte">${tete}${it.titre ? `<h3>${h(it.titre)}</h3>` : ""}<div class="r-trous" id="t-${h(k)}">${html}</div>
 				<div class="r-retour" id="r-${h(k)}"></div>
-				<div class="r-actions"><button class="bouton plein" data-r-trous="${h(k)}">Vérifier</button><button class="bouton petit-b" data-r-solution="${h(k)}">Réponses</button></div>${src(it, ch)}</div>`;
+				<div class="r-actions"><button class="bouton petit-b" data-r-solution="${h(k)}">Voir les réponses</button></div>${src(it, ch)}</div>`;
 		}
 		case "calcul":
 			return `<div class="r-carte">${tete}<div class="r-md">${md(it.enonce)}</div>${it.donnees ? `<div class="r-donnees">${md(it.donnees)}</div>` : ""}
-				<div class="r-rep"><input type="text" inputmode="decimal" id="c-${h(k)}" placeholder="Ta réponse"><span>${h(it.reponse?.unite || "")}</span></div>
+				<div class="r-rep"><input type="text" inputmode="decimal" enterkeyhint="done" id="c-${h(k)}" data-r-calc="${h(k)}" placeholder="Ta réponse, puis Entrée"><span>${h(it.reponse?.unite || "")}</span></div>
 				<div class="r-retour" id="r-${h(k)}"></div>
-				<div class="r-actions"><button class="bouton plein" data-r-calcul="${h(k)}">Vérifier</button>${indices}</div>
+				<div class="r-actions">${indices}</div>
 				<div class="r-actions">${boutonClaude(ch, it)}<button class="bouton petit-b" data-r-solution="${h(k)}">Solution</button></div>
 				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div></div>
 				<details class="r-rendu"><summary class="petit">📤 Rendre une résolution complète (texte ou photo) pour correction</summary>
@@ -228,6 +228,7 @@ function notation(k) {
 
 // ---------- Vues ----------
 function vueReviser() {
+	R.notes = {};
 	if (R.session) return vueSession();
 	if (R.ouvert && R.chap[R.ouvert]) return vueChapitre(R.chap[R.ouvert]);
 	const chs = Object.values(R.chap);
@@ -342,6 +343,58 @@ function repondu(k, niveau) {
 	}
 }
 
+// ---------- Correction immédiate ----------
+R.notes = {}; // éléments déjà notés pendant cet affichage
+function corrigerTrou(c) {
+	const k = c.dataset.rTrouDe;
+	if (!c.value.trim()) { c.classList.remove("bon", "faux"); return; }
+	const ok = c.dataset.rep.split("|").some((r) => proche(norm(r), norm(c.value)));
+	c.classList.toggle("bon", ok); c.classList.toggle("faux", !ok);
+	const champs = [...c.closest(".r-trous").querySelectorAll(".r-trou")];
+	const remplis = champs.filter((x) => x.value.trim());
+	const bons = champs.filter((x) => x.classList.contains("bon")).length;
+	const zone = $(`#r-${CSS.escape(k)}`);
+	if (remplis.length === champs.length) {
+		zone.innerHTML = `<div class="r-msg ${bons === champs.length ? "ok" : "ko"}">${bons === champs.length ? "✓ Tout est juste !" : `${bons}/${champs.length} correct${bons > 1 ? "s" : ""} — corrige les cases en rouge`}</div>`;
+		if (!R.notes[k]) { R.notes[k] = 1; repondu(k, bons === champs.length ? 1 : 0); }
+	}
+	return ok;
+}
+function corrigerCalcul(k) {
+	const x = item(k); if (!x?.it) return;
+	const it = x.it, champ = $(`#c-${CSS.escape(k)}`), zone = $(`#r-${CSS.escape(k)}`);
+	if (!champ.value.trim()) { zone.innerHTML = ""; return; }
+	const v = nombre(champ.value), att = Number(it.reponse.valeur), tol = it.reponse.tolerance ?? 0.02;
+	if (v == null) { zone.innerHTML = `<div class="r-msg ko">Entre un nombre.</div>`; return; }
+	const ok = att === 0 ? Math.abs(v) < 1e-9 : Math.abs(v - att) / Math.abs(att) <= tol;
+	champ.classList.toggle("bon", ok); champ.classList.toggle("faux", !ok);
+	zone.innerHTML = `<div class="r-msg ${ok ? "ok" : "ko"}">${ok ? "✓ Juste !" : "✗ Pas tout à fait. Essaie un indice, ou ouvre la solution."}</div>`;
+	if (!R.notes[k]) { R.notes[k] = 1; repondu(k, ok ? 1 : 0); }
+}
+// Trous : vert dès que le mot est juste, puis case suivante ; vérification à la sortie de chaque case
+document.addEventListener("input", (e) => {
+	const c = e.target;
+	if (!c.classList?.contains("r-trou")) return;
+	c.classList.remove("faux");
+	const alts = c.dataset.rep.split("|").map(norm), v = norm(c.value);
+	// avance seulement si le mot est complet (pas le début d'une variante plus longue, ex. « plane » / « planes »)
+	if (alts.includes(v) && !alts.some((a) => a.length > v.length && a.startsWith(v))) {
+		corrigerTrou(c);
+		const champs = [...c.closest(".r-trous").querySelectorAll(".r-trou")];
+		const suivant = champs.slice(champs.indexOf(c) + 1).find((x) => !x.classList.contains("bon"));
+		if (suivant) suivant.focus();
+	}
+});
+document.addEventListener("change", (e) => {
+	if (e.target.classList?.contains("r-trou")) corrigerTrou(e.target);
+	if (e.target.dataset?.rCalc) corrigerCalcul(e.target.dataset.rCalc);
+});
+document.addEventListener("keydown", (e) => {
+	if (e.key !== "Enter") return;
+	if (e.target.dataset?.rCalc) { e.preventDefault(); corrigerCalcul(e.target.dataset.rCalc); e.target.blur(); }
+	if (e.target.classList?.contains("r-trou")) { e.preventDefault(); corrigerTrou(e.target); const ch = [...e.target.closest(".r-trous").querySelectorAll(".r-trou")]; (ch[ch.indexOf(e.target) + 1] || e.target).focus(); }
+});
+
 // ---------- Évènements ----------
 document.addEventListener("click", (e) => {
 	const el = e.target.closest("[data-r-ouvrir],[data-r-retour],[data-r-session],[data-r-fin],[data-r-suivant],[data-r-montrer],[data-r-note],[data-r-qcm],[data-r-trous],[data-r-calcul],[data-r-solution],[data-r-indice],[data-r-comparer],[data-r-envoyer],[data-r-claude-txt],[data-r-chrono]");
@@ -375,21 +428,10 @@ document.addEventListener("click", (e) => {
 		repondu(k, bon ? 1 : 0);
 		return;
 	}
-	if (d.rTrous || d.rSolution && it.type === "trous") {
+	if (d.rSolution && it.type === "trous") {
 		const champs = [...$(`#t-${CSS.escape(k)}`).querySelectorAll(".r-trou")];
-		if (d.rSolution) { champs.forEach((c) => { c.value = c.dataset.rep.split("|")[0]; c.classList.add("montre"); }); return; }
-		let bons = 0;
-		champs.forEach((c) => { const ok = c.dataset.rep.split("|").some((r) => proche(norm(r), norm(c.value))); c.classList.toggle("bon", ok); c.classList.toggle("faux", !ok); if (ok) bons++; });
-		$(`#r-${CSS.escape(k)}`).innerHTML = `<div class="r-msg ${bons === champs.length ? "ok" : "ko"}">${bons}/${champs.length} correct${bons > 1 ? "s" : ""}</div>`;
-		if (!el.dataset.fait) { repondu(k, bons === champs.length ? 1 : 0); el.dataset.fait = "1"; }
-		return;
-	}
-	if (d.rCalcul) {
-		const v = nombre($(`#c-${CSS.escape(k)}`).value), att = Number(it.reponse.valeur), tol = it.reponse.tolerance ?? 0.02;
-		if (v == null) { $(`#r-${CSS.escape(k)}`).innerHTML = `<div class="r-msg ko">Entre un nombre.</div>`; return; }
-		const ok = att === 0 ? Math.abs(v) < 1e-9 : Math.abs(v - att) / Math.abs(att) <= tol;
-		$(`#r-${CSS.escape(k)}`).innerHTML = `<div class="r-msg ${ok ? "ok" : "ko"}">${ok ? "✓ Juste !" : "✗ Pas tout à fait. Essaie un indice, ou ouvre la solution."}</div>`;
-		if (!el.dataset.fait) { repondu(k, ok ? 1 : 0); el.dataset.fait = "1"; }
+		champs.forEach((c) => { if (!c.classList.contains("bon")) { c.value = c.dataset.rep.split("|")[0]; c.classList.remove("faux"); c.classList.add("montre"); } });
+		if (!R.notes[k]) { R.notes[k] = 1; repondu(k, 0); }
 		return;
 	}
 	if (d.rSolution) { const s = $(`#s-${CSS.escape(k)}`); s.hidden = !s.hidden; formules(s); return; }
