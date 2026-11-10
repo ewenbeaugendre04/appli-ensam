@@ -329,16 +329,22 @@ const VUES = {
 		const tachesJour = {};
 		for (const t of tachesOuvertes()) { const c = echeanceCle(t); if (c >= debutSemaine && c <= finSemaine) (tachesJour[c] ||= []).push(t); }
 		let html = `<div class="nav-semaine"><button class="bouton" data-semaine="-1">‹</button>
-			<strong>${h(fmt(debutSemaine + "T12:00:00Z", { day: "numeric", month: "short" }))} – ${h(fmt(finSemaine + "T12:00:00Z", { day: "numeric", month: "short" }))}</strong>
+			<strong>${S.semaine === 0 ? "Cette semaine" : h(fmt(debutSemaine + "T12:00:00Z", { day: "numeric", month: "short" })) + " – " + h(fmt(finSemaine + "T12:00:00Z", { day: "numeric", month: "short" }))}</strong><!--${h(fmt(finSemaine + "T12:00:00Z", { day: "numeric", month: "short" }))}-->
 			<span><button class="bouton" data-semaine="0">Auj.</button> <button class="bouton" data-semaine="1">›</button></span></div>`;
 		let rien = true;
+		const aujC = auj();
+		const passes = [];
 		for (let i = 0; i < 7; i++) {
 			const c = ajouterJours(debutSemaine, i);
 			const ev = parJour[c] || [], ts = tachesJour[c] || [];
+			// Semaine en cours : aujourd'hui toujours en premier, les jours passés repliés en bas
+			if (S.semaine === 0 && c < aujC) { if (ev.length || ts.length) passes.push([c, ev, ts]); continue; }
+			if (c === aujC && !ev.length && !ts.length) { html += `<div class="jour-titre auj">Aujourd'hui</div><div class="carte"><p class="vide">Aucun cours aujourd'hui.</p></div>`; rien = false; continue; }
 			if (!ev.length && !ts.length) continue;
 			rien = false;
-			html += `<div class="jour-titre ${c === auj() ? "auj" : ""}">${h(libelleJour(c))}</div><div class="carte">${ev.map(ligneCours).join("")}${ts.map(ligneTache).join("")}</div>`;
+			html += `<div class="jour-titre ${c === aujC ? "auj" : ""}">${h(libelleJour(c))}</div><div class="carte">${ev.map(ligneCours).join("")}${ts.map(ligneTache).join("")}</div>`;
 		}
+		if (passes.length) html += `<details style="margin-top:22px"><summary class="petit">Jours passés de la semaine (${passes.length})</summary>${passes.map(([c, ev, ts]) => `<div class="jour-titre">${h(libelleJour(c))}</div><div class="carte">${ev.map(ligneCours).join("")}${ts.map(ligneTache).join("")}</div>`).join("")}</details>`;
 		if (rien) html += '<p class="vide" style="margin-top:20px">Aucun cours cette semaine.</p>';
 		return html;
 	},
