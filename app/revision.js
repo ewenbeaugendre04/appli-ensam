@@ -117,7 +117,7 @@ const src = (it, ch) => (it.source || ch.sources?.[0]?.fichier ? `<div class="r-
 function lienClaude(ch, it, extra = "") {
 	const contexte = `Je suis étudiant à l'ENSAM et je révise « ${ch.titre} » (${ch.ue}${ch.matiere ? " / " + ch.matiere : ""}).`;
 	let corps = "";
-	if (it.type === "calcul") corps = `Voici l'exercice :\n${it.enonce}${it.donnees ? "\nDonnées : " + it.donnees : ""}\n\nGuide-moi étape par étape sans me donner directement la réponse : pose-moi des questions, vérifie mes calculs et mes unités.`;
+	if (it.type === "calcul") corps = `Voici l'exercice :\n${it.enonce}${it.donnees ? "\nDonnées : " + it.donnees : ""}${extra ? "\n\nMa démarche :\n" + extra : ""}\n\nGuide-moi étape par étape sans me donner directement la réponse : pose-moi des questions, vérifie mes calculs et mes unités.`;
 	else if (it.type === "principe") corps = `Je dois expliquer ce principe : ${it.question}\n\nVoici mon explication :\n${extra || "(pas encore écrite)"}\n\nCorrige-la comme un professeur : ce qui est juste, ce qui manque, ce qui est faux, avec un exemple concret.`;
 	else if (it.type === "resume" || it.type === "memoire") corps = `Consigne : ${it.consigne}\n\nVoici mon résumé :\n${extra || "(pas encore écrit)"}\n\nValide-le : points clés présents, oublis, erreurs, et note sur 10.`;
 	else if (it.type === "qcm") corps = `QCM : ${it.question}\nChoix : ${it.choix.map((c, i) => `${String.fromCharCode(65 + i)}. ${c}`).join(" ; ")}\n\nExplique-moi le raisonnement sans me donner tout de suite la réponse.`;
@@ -126,6 +126,53 @@ function lienClaude(ch, it, extra = "") {
 }
 const boutonClaude = (ch, it, extra) => `<a class="bouton petit-b r-claude" href="${h(lienClaude(ch, it, extra))}" target="_blank" rel="noopener" data-r-claude="${h(cle(ch.id, it.id))}">✦ Résoudre avec Claude</a>`;
 
+
+// ---------- Audio (synthèse vocale de l'appareil) ----------
+function texteOral(t = "") {
+	return String(t)
+		.replace(/\\(d|t)?frac\{([^{}]*)\}\{([^{}]*)\}/g, " $2 sur $3 ")
+		.replace(/\^\{?2\}?/g, " au carré").replace(/\^\{?3\}?/g, " au cube").replace(/\^\{?4\}?/g, " puissance 4")
+		.replace(/\\(sigma|varepsilon|epsilon|tau|theta|gamma|lambda|mu|nu|eta|rho|alpha|omega|varphi|phi|Delta|delta|pi|chi)/g, (_, g) => ({ varepsilon: "epsilon", varphi: "phi", Delta: "delta" }[g] || g) + " ")
+		.replace(/\\(cdot|times)/g, " fois ").replace(/\\(le|leq)/g, " inférieur ou égal à ").replace(/\\(ge|geq)/g, " supérieur ou égal à ").replace(/\\approx/g, " environ ")
+		.replace(/_\{([^{}]*)\}/g, " $1").replace(/_(\w)/g, " $1")
+		.replace(/\\[a-zA-Z]+/g, " ").replace(/[{}$#*\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+function ecouter(texte, bouton) {
+	if (!("speechSynthesis" in window)) { alerteDouce("La lecture audio n'est pas disponible sur cet appareil."); return; }
+	if (speechSynthesis.speaking) { speechSynthesis.cancel(); if (bouton) bouton.textContent = "🎧 Écouter"; return; }
+	const u = new SpeechSynthesisUtterance(texteOral(texte));
+	u.lang = "fr-FR";
+	u.rate = 1;
+	const v = speechSynthesis.getVoices().find((x) => x.lang?.startsWith("fr") && /premium|enhanced|amélioré/i.test(x.name)) || speechSynthesis.getVoices().find((x) => x.lang?.startsWith("fr"));
+	if (v) u.voice = v;
+	u.onend = () => { if (bouton) bouton.textContent = "🎧 Écouter"; };
+	if (bouton) bouton.textContent = "⏹ Arrêter";
+	speechSynthesis.speak(u);
+}
+
+// ---------- Photo d'une résolution (compressée avant envoi) ----------
+R.photos = {};
+function compresserImage(fichier, max = 1600) {
+	return new Promise((ok, ko) => {
+		const img = new Image();
+		img.onload = () => {
+			const r = Math.min(1, max / Math.max(img.width, img.height));
+			const cv = document.createElement("canvas");
+			cv.width = Math.round(img.width * r); cv.height = Math.round(img.height * r);
+			cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+			ok(cv.toDataURL("image/jpeg", 0.75));
+			URL.revokeObjectURL(img.src);
+		};
+		img.onerror = ko;
+		img.src = URL.createObjectURL(fichier);
+	});
+}
+async function envoyerImage(chemin, dataUrl, message) {
+	const res = await api(`repos/${DATA_REPO}/contents/${chemin}`, { method: "PUT", body: JSON.stringify({ message, content: dataUrl.split(",")[1] }) });
+	if (!res.ok) throw new Error(`Envoi de la photo impossible (${res.status})`);
+}
+const zonePhoto = (k) => `<label class="bouton petit-b r-photo-b">📷 Photo<input type="file" accept="image/*" data-r-photo="${h(k)}" hidden></label><div class="r-apercu" id="p-${h(k)}"></div>`;
+
 // ---------- Rendu d'un élément ----------
 function carteItem(ch, it, mode = "liste") {
 	const k = cle(ch.id, it.id);
@@ -133,7 +180,8 @@ function carteItem(ch, it, mode = "liste") {
 	const indices = (it.indices || []).length ? `<button class="bouton petit-b" data-r-indice="${h(k)}">💡 Indice</button><div class="r-indices" id="ind-${h(k)}"></div>` : "";
 	switch (it.type) {
 		case "fiche":
-			return `<div class="r-carte">${tete}<h3>${h(it.titre)}</h3><div class="r-md">${md(it.contenu)}</div>${src(it, ch)}</div>`;
+			return `<div class="r-carte">${tete}<h3>${h(it.titre)}</h3><div class="r-md">${md(it.contenu)}</div>
+				<div class="r-actions"><button class="bouton petit-b" data-r-ecouter="${h(k)}">🎧 Écouter</button></div>${src(it, ch)}</div>`;
 		case "equation":
 			if (mode === "session") return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}
 				<p>Écris la formule de tête, puis vérifie.</p><div class="r-cache" id="v-${h(k)}" hidden>${formuleBloc(it)}</div>
@@ -164,23 +212,32 @@ function carteItem(ch, it, mode = "liste") {
 				<div class="r-retour" id="r-${h(k)}"></div>
 				<div class="r-actions"><button class="bouton plein" data-r-calcul="${h(k)}">Vérifier</button>${indices}</div>
 				<div class="r-actions">${boutonClaude(ch, it)}<button class="bouton petit-b" data-r-solution="${h(k)}">Solution</button></div>
-				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div></div>${src(it, ch)}</div>`;
+				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div></div>
+				<details class="r-rendu"><summary class="petit">📤 Rendre une résolution complète (texte ou photo) pour correction</summary>
+					<textarea class="r-texte" id="x-${h(k)}" data-r-brouillon="${h(k)}" placeholder="Écris ta démarche, ou joins une photo de ta feuille / ton schéma…">${h((R.brouillons || {})[k] || "")}</textarea>
+					<div class="r-actions">${zonePhoto(k)}<button class="bouton plein petit-b" data-r-envoyer="${h(k)}">Envoyer pour correction</button><a class="bouton petit-b" href="#" data-r-claude-txt="${h(k)}">✦ Corriger avec Claude</a></div>
+					${statutRendu(k)}
+				</details>${src(it, ch)}</div>`;
 		case "principe":
 		case "resume":
 		case "memoire": {
 			const q = it.type === "principe" ? it.question : it.consigne;
-			const rendu = (S.data.revision.rendus || []).filter((r) => r.cle === k).sort((a, b) => b.date.localeCompare(a.date))[0];
 			return `<div class="r-carte">${tete}<div class="r-md">${md(q)}</div>
 				${it.type === "memoire" ? `<p class="petit">Sans regarder le cours : écris tout ce dont tu te souviens, puis compare. <button class="bouton petit-b" data-r-chrono="${h(k)}">⏱ Lancer 5 min</button> <span id="ch-${h(k)}"></span></p>` : ""}
 				<textarea class="r-texte" id="x-${h(k)}" data-r-brouillon="${h(k)}" placeholder="${it.type === "principe" ? "Explique avec tes mots, comme à un camarade…" : "Écris ton résumé ici…"}">${h((R.brouillons || {})[k] || "")}</textarea>
 				<div class="r-actions">${indices}<button class="bouton plein" data-r-comparer="${h(k)}">Comparer aux points clés</button></div>
 				<div class="r-cache" id="v-${h(k)}" hidden></div>
-				<div class="r-actions"><button class="bouton petit-b" data-r-envoyer="${h(k)}">📤 Envoyer pour validation</button><a class="bouton petit-b" href="#" data-r-claude-txt="${h(k)}">✦ Valider avec Claude</a></div>
-				${rendu ? `<div class="r-statut ${rendu.statut}">${rendu.statut === "en_attente" ? "⏳ Envoyé le " + h(fmt(rendu.date, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) + " · validation cette nuit" : rendu.statut === "valide" ? "✅ Validé" : "✏️ À retravailler"}${rendu.note != null ? ` · ${h(rendu.note)}/10` : ""}${rendu.retour ? `<div class="r-md">${md(rendu.retour)}</div>` : ""}</div>` : ""}
+				<div class="r-actions">${zonePhoto(k)}<button class="bouton petit-b" data-r-envoyer="${h(k)}">📤 Envoyer pour validation</button><a class="bouton petit-b" href="#" data-r-claude-txt="${h(k)}">✦ Valider avec Claude</a></div>
+				${statutRendu(k)}
 				${src(it, ch)}</div>`;
 		}
 	}
 	return "";
+}
+function statutRendu(k) {
+	const rendu = (S.data.revision.rendus || []).filter((r) => r.cle === k).sort((a, b) => b.date.localeCompare(a.date))[0];
+	if (!rendu) return "";
+	return `<div class="r-statut ${rendu.statut}">${rendu.statut === "en_attente" ? "⏳ Envoyé le " + h(fmt(rendu.date, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) + " · correction cette nuit" : rendu.statut === "valide" ? "✅ Validé" : "✏️ À retravailler"}${rendu.note != null ? ` · ${h(rendu.note)}/10` : ""}${rendu.image ? " · 📷 photo jointe" : ""}${rendu.retour ? `<div class="r-md">${md(rendu.retour)}</div>` : ""}</div>`;
 }
 function formuleBloc(it) {
 	return `<div class="r-formule">$$${h(it.formule)}$$</div>${(it.variables || []).length ? `<table class="r-vars">${it.variables.map(([s, sens, u]) => `<tr><td>$${h(s)}$</td><td>${h(sens)}</td><td class="petit">${h(u || "")}</td></tr>`).join("")}</table>` : ""}`;
@@ -206,8 +263,8 @@ function vueReviser() {
 		<div class="grille">
 			<div class="hero r-hero" data-r-session="dus">
 				<div class="eti">Aujourd'hui</div>
-				<div class="nom">${dus.length ? `${dus.length} élément${dus.length > 1 ? "s" : ""} à revoir` : "Tout est à jour 🎉"}</div>
-				<div class="info">${dus.length ? "Répétition espacée : ce que tu oublies revient plus souvent." : "Lance une session mélangée pour t'entraîner."}</div>
+				<div class="nom">${dus.length ? `${Math.min(25, dus.length)} à revoir aujourd'hui` : "Tout est à jour 🎉"}</div>
+				<div class="info">${dus.length ? `Session de 25 max (${dus.length} en attente au total). Ce que tu oublies revient plus souvent.` : "Lance une session mélangée pour t'entraîner."}</div>
 			</div>
 			<div class="rang"><button class="bouton large" data-r-session="melange">🔀 Session mélangée</button><button class="bouton large" data-r-session="partiel">🎯 Prochain partiel</button></div>
 			${rendus.length ? `<section class="carte"><h2>Mes rendus</h2>${rendus.slice(0, 5).map((r) => { const x = item(r.cle); return `<div class="ligne cliquable" data-r-ouvrir="${h(r.cle.split(":")[0])}"><div class="corps"><div class="t">${h(x?.it ? TYPES[x.it.type] + " · " + (x.ch.titre) : r.cle)}</div><div class="s">${r.statut === "en_attente" ? "⏳ En attente de validation" : r.statut === "valide" ? "✅ Validé" : "✏️ À retravailler"}${r.note != null ? ` · ${h(r.note)}/10` : ""}</div></div></div>`; }).join("")}</section>` : ""}
@@ -234,6 +291,7 @@ function vueChapitre(ch) {
 				<button class="bouton plein" data-r-session="cartes:${h(ch.id)}">🃏 Cartes</button>
 				<button class="bouton plein" data-r-session="exos:${h(ch.id)}">✍️ Exercices</button>
 				<button class="bouton" data-r-session="tout:${h(ch.id)}">Tout le chapitre</button>
+				<button class="bouton" data-r-ecouter-defs="${h(ch.id)}">🎧 Écouter les définitions</button>
 			</div>
 		</div>
 		${bloc("Fiche mémo", par("fiche"))}
@@ -377,17 +435,24 @@ document.addEventListener("click", (e) => {
 		return;
 	}
 	if (d.rEnvoyer) {
-		const texte = $(`#x-${CSS.escape(k)}`).value.trim();
-		if (texte.length < 20) { alerteDouce("Écris un peu plus avant d'envoyer."); return; }
+		const texte = ($(`#x-${CSS.escape(k)}`)?.value || "").trim();
+		const photo = R.photos[k];
+		if (texte.length < 20 && !photo) { alerteDouce("Écris un peu plus ou joins une photo avant d'envoyer."); return; }
 		const r = { id: uid(), cle: k, type: it.type, texte, date: new Date().toISOString(), statut: "en_attente" };
-		el.disabled = true;
-		modifier("revision/rendus.json", "rendus", (l) => [...l, r], `Rendu : ${TYPES[it.type]} · ${ch.titre}`, { sansSynchro: true, cible: "revision" })
+		el.disabled = true; el.textContent = "Envoi…";
+		(async () => {
+			if (photo) { r.image = `revision/rendus/${r.id}.jpg`; await envoyerImage(r.image, photo, `Photo de rendu : ${ch.titre}`); }
+			await modifier("revision/rendus.json", "rendus", (l) => [...l, r], `Rendu : ${TYPES[it.type]} · ${ch.titre}`, { sansSynchro: true, cible: "revision" });
+		})()
 			.then(() => {
+				delete R.photos[k];
+				const ap = $(`#p-${CSS.escape(k)}`); if (ap) ap.innerHTML = "";
 				const carte = el.closest(".r-carte");
-				carte.querySelector(".r-statut")?.remove();
-				el.closest(".r-actions").insertAdjacentHTML("afterend", `<div class="r-statut en_attente">⏳ Envoyé · validation cette nuit</div>`);
+				carte.querySelectorAll(".r-statut").forEach((x) => x.remove());
+				el.closest(".r-actions").insertAdjacentHTML("afterend", `<div class="r-statut en_attente">⏳ Envoyé${r.image ? " avec photo" : ""} · correction cette nuit</div>`);
+				el.textContent = "Envoyé ✓";
 			})
-			.catch((err) => { el.disabled = false; alerteDouce(err.message); });
+			.catch((err) => { el.disabled = false; el.textContent = "Réessayer"; alerteDouce(err.message); });
 		return;
 	}
 	if (d.rClaudeTxt) {
@@ -403,6 +468,28 @@ document.addEventListener("click", (e) => {
 		R.chrono = setInterval(() => { reste--; if (aff) aff.textContent = `${Math.floor(reste / 60)}:${String(reste % 60).padStart(2, "0")}`; if (reste <= 0) { clearInterval(R.chrono); if (aff) aff.textContent = "⏰ Temps écoulé : compare !"; } }, 1000);
 		return;
 	}
+});
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-r-ecouter],[data-r-ecouter-defs]");
+	if (!b) return;
+	if (b.dataset.rEcouter) { const x = item(b.dataset.rEcouter); if (x?.it) ecouter(`${x.it.titre}. ${x.it.contenu}`, b); return; }
+	const ch = R.chap[b.dataset.rEcouterDefs];
+	if (ch) ecouter((ch.items || []).filter((i) => i.type === "definition").map((i) => `${i.terme}. ${i.definition}`).join(". "), b);
+});
+document.addEventListener("change", async (e) => {
+	const k = e.target.dataset?.rPhoto;
+	if (!k || !e.target.files?.[0]) return;
+	try {
+		R.photos[k] = await compresserImage(e.target.files[0]);
+		const ap = $(`#p-${CSS.escape(k)}`);
+		if (ap) ap.innerHTML = `<img src="${R.photos[k]}" alt="Photo jointe"><button class="bouton petit-b" data-r-photo-suppr="${h(k)}">Retirer</button>`;
+	} catch { alerteDouce("Impossible de lire cette image."); }
+});
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-r-photo-suppr]");
+	if (!b) return;
+	delete R.photos[b.dataset.rPhotoSuppr];
+	b.parentElement.innerHTML = "";
 });
 document.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-r-score]");
