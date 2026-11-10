@@ -166,7 +166,7 @@ const appartient = (lib, cible) => lib === cible || lib.startsWith(cible + " / "
 // ---------- Données dérivées ----------
 const cours = () => S.data.events.events || [];
 function partielsTous() {
-	const lise = cours().filter((e) => e.examen).map((e) => ({ id: "lise-" + e.uid, titre: e.titre, debut: e.debut, salle: e.salle, matiere: matiereDe(e), source: "Lise" }));
+	const lise = cours().filter((e) => e.examen).map((e) => ({ id: "lise-" + e.uid, titre: e.titre, debut: e.debut, salle: e.salle, matiere: matiereDe(e), type: e.type, source: "Lise" }));
 	const perso = (S.data.partiels || []).map((p) => ({ ...p, debut: p.heureDebut ? parisIso(p.date, p.heureDebut) : p.date + "T00:00:00", source: "perso" }));
 	return [...lise, ...perso].sort((a, b) => a.debut.localeCompare(b.debut));
 }
@@ -174,18 +174,25 @@ const echeanceCle = (t) => (t.echeance ? (t.echeance.length > 10 ? jourCle(t.ech
 const tachesOuvertes = () => (S.data.tasks || []).filter((t) => !t.fait).sort((a, b) => (a.echeance || "9999").localeCompare(b.echeance || "9999"));
 
 // ---------- Composants ----------
+const salle = (x) => (x || "").replace(/^PA_/, "").replace(/_/g, " ");
+const PALETTE = ["#8a1c2c", "#2f6f9f", "#2e7d5b", "#b7791f", "#6b4fa0", "#c2412d", "#2b8a8a", "#9a4f7a", "#5b6b2f", "#44617a"];
+function couleur(lib) {
+	if (!lib) return "#8a8079";
+	const i = ues().findIndex((u) => u.code === lib.split(" / ")[0]);
+	return i < 0 ? "#8a8079" : PALETTE[i % PALETTE.length];
+}
 function ligneCours(e) {
 	const mat = matiereDe(e);
-	return `<div class="ligne cliquable" data-cours="${h(e.uid)}">
-		<div class="heure">${e.journee ? "Journée" : heure(e.debut)}<br><span class="petit">${e.journee ? "" : heure(e.fin)}</span></div>
-		<div class="corps"><div class="t">${e.examen ? '<span class="pastille examen">Examen</span>' : e.type ? `<span class="pastille">${h(e.type)}</span>` : ""}${h(e.titre)}</div>
-		<div class="s">${[e.salle, e.profs, mat].filter(Boolean).map(h).join(" · ")}</div></div></div>`;
+	return `<div class="ligne barre cliquable" style="--c:${couleur(mat)}" data-cours="${h(e.uid)}">
+		<div class="heure">${e.journee ? "Journée" : `<b>${heure(e.debut)}</b><br>${heure(e.fin)}`}</div>
+		<div class="corps"><div class="t">${e.examen ? `<span class="pastille examen">${h(e.type || "Examen")}</span>` : e.type ? `<span class="pastille">${h(e.type)}</span>` : ""}${h(e.titre)}</div>
+		<div class="s">${[salle(e.salle), e.profs, mat].filter(Boolean).map(h).join(" · ")}</div></div></div>`;
 }
 function ligneTache(t) {
 	const cle = echeanceCle(t);
 	const n = t.echeance ? joursEntre(auj(), cle) : null;
-	const quand = !t.echeance ? "Sans échéance" : (n < 0 ? `<span class="retard">En retard · ${h(libelleJour(cle))}</span>` : h(libelleJour(cle))) + (t.echeance.length > 10 ? " à " + heure(t.echeance) : "");
-	return `<div class="ligne ${t.fait ? "fait" : ""}">
+	const quand = !t.echeance ? "Sans échéance" : (n < 0 && !t.fait ? `<span class="retard">En retard · ${h(libelleJour(cle))}</span>` : h(libelleJour(cle))) + (t.echeance.length > 10 ? " à " + heure(t.echeance) : "");
+	return `<div class="ligne ${t.fait ? "fait" : ""}" style="--c:${couleur(t.matiere)}">
 		<input type="checkbox" class="coche" data-cocher="${h(t.id)}" ${t.fait ? "checked" : ""} aria-label="Terminée">
 		<div class="corps cliquable" data-tache="${h(t.id)}"><div class="t">${h(t.titre)}</div>
 		<div class="s">${quand}${t.matiere ? " · " + h(t.matiere) : ""}</div></div></div>`;
@@ -193,33 +200,121 @@ function ligneTache(t) {
 function lignePartiel(p) {
 	const n = joursEntre(auj(), jourCle(p.debut));
 	return `<div class="ligne ${p.source === "perso" ? "cliquable" : ""}" ${p.source === "perso" ? `data-partiel="${h(p.id)}"` : ""}>
-		<div class="compte">${n <= 0 ? (n === 0 ? "Auj." : "✓") : "J-" + n}<small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div>
-		<div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${[p.debut.length > 10 && !p.debut.endsWith("T00:00:00") ? heure(p.debut) : "", p.salle, p.matiere, p.source === "Lise" ? "depuis Lise" : ""].filter(Boolean).map(h).join(" · ")}</div></div></div>`;
+		<div class="compte ${n >= 0 && n <= 7 ? "proche" : ""}"><b>${n < 0 ? "✓" : n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div>
+		<div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${[p.debut.length > 10 && !p.debut.endsWith("T00:00:00") ? heure(p.debut) : "", salle(p.salle), p.matiere, p.type].filter(Boolean).map(h).join(" · ")}</div></div></div>`;
+}
+function dansCombien(iso) {
+	const min = Math.round((Date.parse(iso) - Date.now()) / 60e3);
+	if (min <= 0) return "En cours";
+	if (min < 60) return `Dans ${min} min`;
+	if (min < 24 * 60) return `Dans ${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+	return libelleJour(jourCle(iso));
+}
+function hero() {
+	const now = new Date().toISOString();
+	const e = cours().find((x) => x.fin > now && !x.journee);
+	if (!e) return `<div class="hero calme"><div class="eti">Prochain cours</div><div class="nom">Rien de prévu</div><div class="info">Profite-en pour réviser.</div></div>`;
+	const mat = matiereDe(e);
+	return `<div class="hero" style="--c:${couleur(mat)}" data-cours="${h(e.uid)}">
+		<span class="dans">${h(dansCombien(e.debut))}</span>
+		<div class="eti">${e.debut <= now ? "En ce moment" : "Prochain cours"}${e.type ? " · " + h(e.type) : ""}</div>
+		<div class="nom">${h(e.titre)}</div>
+		<div class="info">${heure(e.debut)} – ${heure(e.fin)}${e.salle ? " · " + h(salle(e.salle)) : ""}${e.profs ? " · " + h(e.profs) : ""}</div></div>`;
+}
+
+// ---------- Cours annulés ou déplacés ----------
+// Une tâche liée à un cours garde une copie du créneau (coursLie). Si Lise ne contient plus ce cours,
+// ou l'a déplacé, on le signale sans jamais supprimer la tâche.
+function verifications() {
+	const evs = cours();
+	if (!evs.length || !S.data.events.majLe) return [];
+	const premier = evs[0].debut, dernier = evs[evs.length - 1].debut;
+	const limite = new Date(Date.now() - 86400e3).toISOString();
+	const out = [];
+	for (const t of S.data.tasks || []) {
+		const l = t.coursLie;
+		if (t.fait || !l || l.ignore) continue;
+		const ev = evs.find((x) => x.uid === l.uid);
+		if (ev) {
+			if (ev.debut !== l.debut) out.push({ t, genre: "deplace", ev });
+		} else if (l.debut >= premier && l.debut <= dernier && l.debut >= limite) {
+			out.push({ t, genre: "annule" });
+		}
+	}
+	return out;
+}
+function carteVerif(v) {
+	const l = v.t.coursLie;
+	const avant = `${libelleJour(jourCle(l.debut))} ${heure(l.debut)}`;
+	const txt = v.genre === "deplace"
+		? `Le cours <b>${h(l.titre)}</b> a été déplacé : ${h(avant)} → <b>${h(libelleJour(jourCle(v.ev.debut)))} ${heure(v.ev.debut)}</b>.`
+		: `Le cours <b>${h(l.titre)}</b> du ${h(avant)} n'est plus dans Lise (annulé ou supprimé).`;
+	return `<div class="ligne"><div class="corps"><div class="t">${h(v.t.titre)}</div><div class="s">${txt}</div>
+		<div class="actions-ligne">
+			${v.genre === "deplace" ? `<button class="bouton plein petit-b" data-suivre="${h(v.t.id)}">Suivre le nouveau créneau</button>` : ""}
+			<button class="bouton petit-b ${v.genre === "annule" ? "plein" : ""}" data-reattribuer="${h(v.t.id)}">Choisir un autre cours</button>
+			<button class="bouton petit-b" data-garder="${h(v.t.id)}">Garder tel quel</button>
+		</div></div></div>`;
+}
+function feuilleReattribuer(t) {
+	const now = new Date().toISOString();
+	const l = t.coursLie || {};
+	const memes = cours().filter((e) => e.debut > now && (e.module === t.module || (t.matiere && matiereDe(e) === t.matiere))).slice(0, 6);
+	const autres = cours().filter((e) => e.debut > now && !memes.includes(e)).slice(0, 25);
+	const opt = (e, i) => `<label class="choix"><input type="radio" name="ra" value="${h(e.uid)}" ${i === 0 ? "checked" : ""}><span><b>${h(libelleJour(jourCle(e.debut)))} · ${heure(e.debut)}</b><br><span class="petit">${h(e.titre)}${e.type ? " · " + h(e.type) : ""}</span></span></label>`;
+	ouvrirFeuille(`<h3>Réattribuer la tâche</h3>
+		<p class="petit">« ${h(t.titre)} » était liée à ${h(l.titre || "un cours")}. Choisis le nouveau cours :</p>
+		<form id="f-ra">
+			${memes.length ? `<div class="section-titre" style="margin-top:14px">Même matière</div>${memes.map(opt).join("")}` : ""}
+			${autres.length ? `<details style="margin-top:12px"><summary class="petit">Autres cours</summary>${autres.map((e) => opt(e, memes.length ? 1 : 0)).join("")}</details>` : ""}
+			<label class="case" style="display:flex;gap:8px;color:var(--texte);margin-top:16px"><input type="checkbox" id="ra-ech" checked> Mettre l'échéance à ce cours</label>
+			<div class="actions"><button type="button" class="bouton" data-fermer>Annuler</button><button class="bouton plein">Réattribuer</button></div>
+		</form>`);
+	$("#f-ra").addEventListener("submit", (e) => {
+		e.preventDefault();
+		const u = new FormData(e.target).get("ra");
+		const ev = cours().find((x) => x.uid === u);
+		if (!ev) return;
+		const ech = $("#ra-ech").checked;
+		fermerFeuille();
+		action(() => modifier("tasks.json", "tasks", (liste) => liste.map((x) => x.id !== t.id ? x : {
+			...x, coursLie: { uid: ev.uid, debut: ev.debut, titre: ev.titre }, module: ev.module, coursUid: ev.uid,
+			matiere: x.matiere || matiereDe(ev), echeance: ech ? ev.debut : x.echeance,
+		}), `Réattribution : ${t.titre}`));
+	});
 }
 
 // ---------- Vues ----------
 const VUES = {
 	accueil() {
-		const now = new Date().toISOString();
 		const aujCle = auj();
-		let jour = cours().filter((e) => jourCle(e.debut) === aujCle && e.fin > now);
-		let titreJour = "Aujourd'hui";
-		if (!jour.length) {
-			const prochain = cours().find((e) => e.debut > now);
-			if (prochain) { const c = jourCle(prochain.debut); jour = cours().filter((e) => jourCle(e.debut) === c); titreJour = libelleJour(c); }
-		}
+		const verifs = verifications();
 		const taches = tachesOuvertes().slice(0, 6);
 		const parts = partielsTous().filter((p) => jourCle(p.debut) >= aujCle).slice(0, 4);
+		const now = new Date().toISOString();
+		const prochainJour = (() => {
+			const heroUid = cours().find((x) => x.fin > now && !x.journee)?.uid;
+			const reste = cours().filter((e) => jourCle(e.debut) === aujCle && e.fin > now && e.uid !== heroUid);
+			if (reste.length > 0) return { titre: "Aujourd'hui", liste: reste };
+			const suiv = cours().find((e) => jourCle(e.debut) > aujCle);
+			if (!suiv) return { titre: "Aujourd'hui", liste: reste };
+			const c = jourCle(suiv.debut);
+			return { titre: libelleJour(c), liste: [...reste, ...cours().filter((e) => jourCle(e.debut) === c)], mixte: reste.length > 0 };
+		})();
 		const ev = S.data.events;
 		return `<p class="date-jour">${h(fmt(new Date(), { weekday: "long", day: "numeric", month: "long" }))}</p>
 		<div class="grille deux">
-			<section class="carte"><h2>${h(titreJour)}</h2>${jour.length ? jour.map(ligneCours).join("") : '<p class="vide">Aucun cours à venir.</p>'}</section>
+			<div class="grille">
+				${hero()}
+				${verifs.length ? `<section class="carte verif"><h2>À vérifier</h2>${verifs.map(carteVerif).join("")}</section>` : ""}
+				<section class="carte"><h2>${prochainJour.mixte ? "Ensuite" : h(prochainJour.titre)}</h2>${prochainJour.liste.length ? prochainJour.liste.map(ligneCours).join("") : '<p class="vide">Aucun cours à venir.</p>'}</section>
+			</div>
 			<div class="grille">
 				<section class="carte"><h2>Prochaines tâches</h2>${taches.length ? taches.map(ligneTache).join("") : '<p class="vide">Rien à faire pour l\'instant. Ajoute une tâche avec +</p>'}</section>
 				<section class="carte"><h2>Prochains partiels</h2>${parts.length ? parts.map(lignePartiel).join("") : '<p class="vide">Aucun partiel prévu.</p>'}</section>
 			</div>
 		</div>
-		<p class="petit" style="margin-top:14px">${ev.majLe ? `Planning Lise vérifié ${h(fmt(ev.majLe, { weekday: "short", hour: "2-digit", minute: "2-digit" }))}${ev.etat && !ev.etat.ok ? " — " + h(ev.etat.message) : ""}` : "Planning pas encore synchronisé."}</p>`;
+		<p class="petit" style="margin-top:16px;text-align:center">${ev.majLe ? `Planning Lise vérifié ${h(fmt(ev.majLe, { weekday: "short", hour: "2-digit", minute: "2-digit" }))}${ev.etat && !ev.etat.ok ? " — " + h(ev.etat.message) : ""}` : "Planning pas encore synchronisé."}</p>`;
 	},
 
 	agenda() {
@@ -268,20 +363,24 @@ const VUES = {
 		const nonClasses = [...new Set(cours().filter((e) => e.module && !matiereDe(e)).map((e) => e.module))].sort();
 		let html = "";
 		for (const ue of ues()) {
-			const libs = [ue.code, ...(ue.matieres || []).map((m) => `${ue.code} / ${m.nom}`)];
 			const prochains = cours().filter((e) => e.debut > now && appartient(matiereDe(e), ue.code)).slice(0, 3);
 			const ts = tachesOuvertes().filter((t) => t.matiere && appartient(t.matiere, ue.code));
-			html += `<details class="carte ue" open><summary><span><span class="code">${h(ue.code)}</span> · ${h(ue.nom || "")}</span><span class="petit">${ts.length ? ts.length + " tâche(s)" : ""}</span></summary>
-				${ue.drive ? `<div class="liens"><a href="${h(ue.drive)}" target="_blank" rel="noopener">Cours (Drive)</a></div>` : ""}
+			const nCours = cours().filter((e) => e.debut > now && appartient(matiereDe(e), ue.code)).length;
+			html += `<details class="carte ue" style="--c:${couleur(ue.code)}"><summary>
+				<span style="display:flex;gap:12px;align-items:center"><span class="pastille-ue">${h(ue.code)}</span><span><span class="ue-nom">${h(ue.nom || ue.code)}</span><br><span class="petit">${nCours} cours à venir${ts.length ? ` · ${ts.length} tâche(s)` : ""}</span></span></span>
+				<span class="petit">›</span></summary>
+				<div class="ue-int">
+				${ue.drive ? `<div class="liens"><a href="${h(ue.drive)}" target="_blank" rel="noopener">📂 Cours sur le Drive</a></div>` : ""}
 				${(ue.matieres || []).map((m) => {
 					const lib = `${ue.code} / ${m.nom}`;
 					const n = tachesOuvertes().filter((t) => t.matiere === lib).length;
-					return `<div class="ligne"><div class="corps"><div class="t">${h(m.nom)}</div><div class="s">${n ? n + " tâche(s) · " : ""}${m.drive ? `<a href="${h(m.drive)}" target="_blank" rel="noopener">Cours</a>` : ""}</div></div>
-						<button class="bouton" data-tache-pour="${h(lib)}">+ Tâche</button></div>`;
+					return `<div class="ligne"><div class="corps"><div class="t">${h(m.nom)}</div><div class="s">${n ? n + " tâche(s)" : ""}${n && m.drive ? " · " : ""}${m.drive ? `<a href="${h(m.drive)}" target="_blank" rel="noopener">Cours</a>` : ""}</div></div>
+						<button class="bouton petit-b" data-tache-pour="${h(lib)}">+ Tâche</button></div>`;
 				}).join("")}
-				${prochains.length ? `<h2 style="margin-top:12px">Prochains cours</h2>${prochains.map(ligneCours).join("")}` : ""}
-				${ts.length ? `<h2 style="margin-top:12px">Tâches</h2>${ts.map(ligneTache).join("")}` : ""}
-				<div class="liens" style="margin-top:10px"><button class="bouton" data-tache-pour="${h(ue.code)}">+ Tâche pour ${h(ue.code)}</button></div>
+				${prochains.length ? `<h2 style="margin-top:14px">Prochains cours</h2>${prochains.map(ligneCours).join("")}` : ""}
+				${ts.length ? `<h2 style="margin-top:14px">Tâches</h2>${ts.map(ligneTache).join("")}` : ""}
+				<div class="liens" style="margin-top:12px"><button class="bouton petit-b" data-tache-pour="${h(ue.code)}">+ Tâche pour ${h(ue.code)}</button></div>
+				</div>
 			</details>`;
 		}
 		if (nonClasses.length) {
@@ -343,15 +442,22 @@ function formTache(t = {}, prefill = {}) {
 			<label for="ft-mat">Matière</label><select id="ft-mat">${opts}</select>
 			<div class="rang"><div><label for="ft-date">Pour le</label><input id="ft-date" type="date" value="${h(cle)}"></div>
 			<div><label for="ft-h">Heure (facultatif)</label><input id="ft-h" type="time" value="${h(hm)}"></div></div>
-			${prochain ? `<button type="button" class="bouton" style="margin-top:8px" data-prochain="${h(prochain.debut)}">Pour le prochain cours (${h(libelleJour(jourCle(prochain.debut)))} ${heure(prochain.debut)})</button>` : ""}
+			${t.coursLie ? `<p class="petit" style="margin-top:10px">Liée au cours : ${h(t.coursLie.titre)} (${h(libelleJour(jourCle(t.coursLie.debut)))} ${heure(t.coursLie.debut)}) · <a href="#" data-changer-cours>changer</a></p>` : ""}
+			${prochain ? `<button type="button" class="bouton" style="margin-top:8px" data-prochain="${h(prochain.uid)}">Pour le prochain cours (${h(libelleJour(jourCle(prochain.debut)))} ${heure(prochain.debut)})</button>` : ""}
 			<label for="ft-note">Note</label><textarea id="ft-note" placeholder="Détails, pages, consignes…">${h(v.note || "")}</textarea>
 			<div class="actions">${t.id ? '<button type="button" class="bouton danger" data-suppr-tache>Supprimer</button>' : '<button type="button" class="bouton" data-fermer>Annuler</button>'}<button class="bouton plein">Enregistrer</button></div>
 		</form>`);
 	const f = $("#f-tache");
+	let lie = t.coursLie || null;
+	if (!lie && v.coursUid) { const c = cours().find((x) => x.uid === v.coursUid); if (c) lie = { uid: c.uid, debut: c.debut, titre: c.titre }; }
 	f.querySelector("[data-prochain]")?.addEventListener("click", (e) => {
-		const d = e.currentTarget.dataset.prochain;
-		$("#ft-date").value = jourCle(d); $("#ft-h").value = heure(d);
+		const c = cours().find((x) => x.uid === e.currentTarget.dataset.prochain);
+		if (!c) return;
+		$("#ft-date").value = jourCle(c.debut); $("#ft-h").value = heure(c.debut);
+		lie = { uid: c.uid, debut: c.debut, titre: c.titre };
+		e.currentTarget.textContent = "✓ Échéance au prochain cours";
 	});
+	f.querySelector("[data-changer-cours]")?.addEventListener("click", (e) => { e.preventDefault(); fermerFeuille(); feuilleReattribuer(t); });
 	f.querySelector("[data-suppr-tache]")?.addEventListener("click", () => {
 		if (!confirm("Supprimer cette tâche ?")) return;
 		fermerFeuille();
@@ -365,7 +471,8 @@ function formTache(t = {}, prefill = {}) {
 		const tache = {
 			id: t.id || uid(), titre, matiere: $("#ft-mat").value, note: $("#ft-note").value.trim(),
 			echeance: date ? (hh ? parisIso(date, hh) : date) : "", fait: t.fait || false,
-			coursUid: v.coursUid || "", module: v.module || "", creeLe: t.creeLe || new Date().toISOString(),
+			coursUid: lie?.uid || v.coursUid || "", module: v.module || "", creeLe: t.creeLe || new Date().toISOString(),
+			coursLie: lie,
 		};
 		fermerFeuille();
 		action(() => modifier("tasks.json", "tasks", (l) => { const i = l.findIndex((x) => x.id === tache.id); if (i >= 0) l[i] = { ...l[i], ...tache }; else l.push(tache); return l; }, `${t.id ? "Modification" : "Nouvelle"} tâche : ${titre}`));
@@ -437,7 +544,7 @@ async function enregistrerToken(val) {
 }
 
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion]");
+	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder]");
 	if (!el) return;
 	const d = el.dataset;
 	if ("fermer" in d) return fermerFeuille();
@@ -448,6 +555,21 @@ document.addEventListener("click", (e) => {
 	if (d.seg) { S.segTaches = d.seg; return rendre(); }
 	if ("nouveauPartiel" in d) return formPartiel();
 	if (d.tachePour) return formTache({}, { matiere: d.tachePour });
+	if (d.suivre) {
+		const t = S.data.tasks.find((x) => x.id === d.suivre);
+		const ev = t && cours().find((x) => x.uid === t.coursLie.uid);
+		if (!ev) return;
+		const suivaitEcheance = t.echeance && t.echeance.length > 10 && t.echeance === t.coursLie.debut;
+		const memeJour = t.echeance && t.echeance.length <= 10 && t.echeance === jourCle(t.coursLie.debut);
+		return action(() => modifier("tasks.json", "tasks", (l) => l.map((x) => x.id !== t.id ? x : {
+			...x, coursLie: { ...x.coursLie, debut: ev.debut }, echeance: suivaitEcheance ? ev.debut : memeJour ? jourCle(ev.debut) : x.echeance,
+		}), `Cours déplacé : ${t.titre}`));
+	}
+	if (d.reattribuer) { const t = S.data.tasks.find((x) => x.id === d.reattribuer); if (t) feuilleReattribuer(t); return; }
+	if (d.garder) {
+		const id = d.garder;
+		return action(() => modifier("tasks.json", "tasks", (l) => l.map((x) => x.id !== id ? x : { ...x, coursLie: { ...x.coursLie, ignore: true } }), "Tâche conservée"));
+	}
 	if (d.tacheCours) {
 		const ev = cours().find((x) => x.uid === d.tacheCours);
 		fermerFeuille();
