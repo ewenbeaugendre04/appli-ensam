@@ -183,31 +183,31 @@ ${src(it, ch)}</div>`;
 		case "equation":
 			if (mode === "session") return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}
 				<p>Écris la formule de tête, puis vérifie.</p><div class="r-cache" id="v-${h(k)}" hidden>${formuleBloc(it)}</div>
-				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Voir la formule</button></div>${notation(k)}</div>`;
-			return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${formuleBloc(it)}${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}${src(it, ch)}</div>`;
+				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Voir la formule</button></div>${notation(k)}${blocAide(it, k)}</div>`;
+			return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${formuleBloc(it)}${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}${blocAide(it, k, false)}${src(it, ch)}</div>`;
 		case "definition":
 		case "flash": {
 			const recto = it.type === "flash" ? it.recto : it.terme, verso = it.type === "flash" ? it.verso : it.definition;
-			if (mode === "liste" && it.type === "definition") return `<div class="r-carte">${tete}<h3>${h(recto)}</h3><div class="r-md">${md(verso)}</div>${src(it, ch)}</div>`;
+			if (mode === "liste" && it.type === "definition") return `<div class="r-carte">${tete}<h3>${h(recto)}</h3><div class="r-md">${md(verso)}</div>${blocAide(it, k, false)}${src(it, ch)}</div>`;
 			return `<div class="r-carte r-flash">${tete}<div class="r-recto">${md(recto)}</div>
 				<div class="r-cache" id="v-${h(k)}" hidden><hr><div class="r-md">${md(verso)}</div>${src(it, ch)}</div>
-				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Retourner la carte</button></div>${notation(k)}</div>`;
+				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Retourner la carte</button></div>${notation(k)}${blocAide(it, k)}</div>`;
 		}
 		case "qcm":
 			return `<div class="r-carte">${tete}<div class="r-md">${md(it.question)}</div>
 				<div class="r-choix">${it.choix.map((c, i) => `<button class="r-choix-b" data-r-qcm="${h(k)}" data-i="${i}">${String.fromCharCode(65 + i)}. ${inline(h(c))}</button>`).join("")}</div>
-				<div class="r-retour" id="r-${h(k)}"></div><div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
+				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(it, k)}<div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
 		case "trous": {
 			let n = 0;
 			const html = h(it.texte).replace(/\[\[(.+?)\]\]/g, (_, rep) => `<input class="r-trou" data-rep="${rep}" data-n="${n++}" data-r-trou-de="${h(k)}" enterkeyhint="next" size="${Math.max(4, rep.split("|")[0].length)}" autocomplete="off" autocapitalize="off" spellcheck="false">`);
 			return `<div class="r-carte">${tete}${it.titre ? `<h3>${h(it.titre)}</h3>` : ""}<div class="r-trous" id="t-${h(k)}">${html}</div>
-				<div class="r-retour" id="r-${h(k)}"></div>
+				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(it, k)}
 				<div class="r-actions"><button class="bouton petit-b" data-r-solution="${h(k)}">Voir les réponses</button></div>${src(it, ch)}</div>`;
 		}
 		case "calcul":
 			return `<div class="r-carte">${tete}<div class="r-md">${md(it.enonce)}</div>${it.donnees ? `<div class="r-donnees">${md(it.donnees)}</div>` : ""}
 				<div class="r-rep"><input type="text" inputmode="decimal" enterkeyhint="done" id="c-${h(k)}" data-r-calc="${h(k)}" placeholder="Ta réponse, puis Entrée"><span>${h(it.reponse?.unite || "")}</span></div>
-				<div class="r-retour" id="r-${h(k)}"></div>
+				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(it, k)}
 				<div class="r-actions">${indices}</div>
 				<div class="r-actions">${boutonClaude(ch, it)}<button class="bouton petit-b" data-r-solution="${h(k)}">Solution</button></div>
 				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div></div>
@@ -231,6 +231,20 @@ ${src(it, ch)}</div>`;
 		}
 	}
 	return "";
+}
+function blocAide(it, k, cache = true) {
+	const a = it.aide;
+	if (!a) return "";
+	const termes = (a.termes || []).length ? `<div class="r-aide-t">🔤 Les lettres et les mots</div><table class="r-vars">${a.termes.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
+	const corps = `${a.simple ? `<div class="r-aide-t">🧠 En mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
+		${a.exemple ? `<div class="r-aide-t">🔧 Exemple concret</div><div class="r-md">${md(a.exemple)}</div>` : ""}
+		${termes}
+		${a.variation ? `<div class="r-aide-t">📈 Et si on fait varier…</div><div class="r-md">${md(a.variation)}</div>` : ""}`;
+	return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${corps}</details>`;
+}
+function montrerAide(k) {
+	const a = $(`#a-${CSS.escape(k)}`);
+	if (a) { a.hidden = false; formules(a); }
 }
 function statutRendu(k) {
 	const rendu = (S.data.revision.rendus || []).filter((r) => r.cle === k).sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -400,6 +414,7 @@ function demarrerSession(type) {
 }
 function repondu(k, niveau) {
 	noter(k, niveau);
+	montrerAide(k);
 	if (R.session && R.session.cles[R.session.i] === k) {
 		R.session.repondu = true;
 		if (niveau > 0) R.session.bons++;
@@ -484,6 +499,7 @@ document.addEventListener("click", (e) => {
 	const { ch, it } = x;
 	if (d.rMontrer) {
 		$(`#v-${CSS.escape(k)}`).hidden = false; el.hidden = true;
+		montrerAide(k);
 		const n = $(`#n-${CSS.escape(k)}`); if (n) n.hidden = false;
 		formules($(`#v-${CSS.escape(k)}`));
 		return;
@@ -505,9 +521,10 @@ document.addEventListener("click", (e) => {
 		const champs = [...$(`#t-${CSS.escape(k)}`).querySelectorAll(".r-trou")];
 		champs.forEach((c) => { if (!c.classList.contains("bon")) { c.value = c.dataset.rep.split("|")[0]; c.classList.remove("faux"); c.classList.add("montre"); } });
 		if (!R.notes[k]) { R.notes[k] = 1; repondu(k, 0); }
+		montrerAide(k);
 		return;
 	}
-	if (d.rSolution) { const s = $(`#s-${CSS.escape(k)}`); s.hidden = !s.hidden; formules(s); return; }
+	if (d.rSolution) { const s = $(`#s-${CSS.escape(k)}`); s.hidden = !s.hidden; formules(s); montrerAide(k); return; }
 	if (d.rIndice) {
 		const box = $(`#ind-${CSS.escape(k)}`);
 		const n = box.children.length;

@@ -240,3 +240,9 @@ textarea { min-height: 84px; resize: vertical; }
 a.bouton { text-decoration: none; color: inherit; }
 .r-rep input.bon { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .r-rep input.faux { border-color: var(--alerte); background: color-mix(in srgb, var(--alerte) 8%, transparent); }
+.r-aide { margin-top: 12px; background: color-mix(in srgb, #2f6f9f 8%, var(--carte)); border-radius: 14px; padding: 10px 14px; }
+.r-aide summary { cursor: pointer; font-weight: 600; color: #2f6f9f; }
+.r-aide[open] summary { margin-bottom: 4px; }
+.r-aide-t { font: 600 13px var(--titre); margin: 12px 0 2px; color: var(--texte); }
+.r-aide .r-vars td:first-child { width: auto; text-align: left; white-space: nowrap; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .r-aide summary { color: #8fc1ea; } }
