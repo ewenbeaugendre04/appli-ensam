@@ -241,6 +241,7 @@ function blocAide(ch, it, k, cache = true) {
 	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary><p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>`;
 	const termes = (a.termes || []).length ? `<div class="r-aide-t">🔤 Les lettres et les mots</div><table class="r-vars">${a.termes.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
 	const corps = `${a.simple ? `<div class="r-aide-t">🧠 En mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
+		${a.piege ? `<div class="r-aide-t">⚠️ Piège fréquent</div><div class="r-md">${md(a.piege)}</div>` : ""}
 		${a.exemple ? `<div class="r-aide-t">🔧 Exemple concret</div><div class="r-md">${md(a.exemple)}</div>` : ""}
 		${termes}
 		${a.variation ? `<div class="r-aide-t">📈 Et si on fait varier…</div><div class="r-md">${md(a.variation)}</div>` : ""}`;
