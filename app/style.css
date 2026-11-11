@@ -282,3 +282,31 @@ button.lien { background: none; border: 0; color: var(--accent, #c0572f); text-d
 .r-carte .katex { overflow-wrap: normal; }
 .r-md .katex-display, .r-aide .katex-display { max-width: 100%; }
 .r-aide table.r-vars { table-layout: auto; }
+/* Signaler une question */
+.r-tete { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.r-signaler { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--ligne); background: transparent; color: var(--doux); font: 600 13px/1 -apple-system, system-ui, sans-serif; padding: 0; opacity: .7; }
+.r-signaler:active { opacity: 1; }
+.r-signale { font-size: 12px; color: var(--doux); }
+/* Notes */
+.accueil-haut { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.accueil-haut { margin: -2px 0 16px; }
+.accueil-haut .date-jour { margin: 0; }
+.pastille-notes { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 10px; border-radius: 99px; background: var(--carte); box-shadow: var(--ombre); color: var(--texte); text-decoration: none; font: 600 14px var(--titre); flex: none; }
+.pastille-notes svg { width: 20px; height: 20px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.pastille-notes b { background: var(--accent); color: #fff; border-radius: 99px; font-size: 11px; min-width: 18px; height: 18px; display: inline-grid; place-items: center; padding: 0 5px; }
+.notes-tete { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+.notes-moy { font: 700 40px/1 var(--titre); }
+.notes-moy span { font-size: 16px; color: var(--doux); margin-left: 2px; }
+.notes-moy.ok, .note-val.ok { color: var(--ok); } .notes-moy.ko, .note-val.ko { color: var(--alerte); }
+.note-ue { display: flex; justify-content: space-between; align-items: baseline; border-left: 4px solid var(--c); padding-left: 8px; }
+.note-l { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--ligne); }
+.note-l:first-of-type { border-top: 0; }
+.note-info { flex: 1; min-width: 0; }
+.note-nom { font-weight: 600; }
+.note-com { font-style: italic; }
+.note-val { font: 700 22px var(--titre); flex: none; }
+.badge-nouv { font-size: 11px; background: var(--accent-doux); color: var(--accent); padding: 1px 7px; border-radius: 99px; vertical-align: 2px; }
+.note-l.nouvelle .note-nom { color: var(--accent); }
+.avert-txt { background: var(--avert-doux); color: var(--avert); padding: 10px 12px; border-radius: 12px; }
+.etapes-simples { padding-left: 20px; line-height: 1.6; }
+.notes-tete ~ section.carte, .notes-tete ~ .avert-txt { margin-top: 14px; }

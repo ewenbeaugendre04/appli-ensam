@@ -119,10 +119,10 @@ const sauverCache = () => store.set("ae.cache", S.data);
 async function charger() {
 	if (!S.token) return;
 	try {
-		const [config, tasks, partiels, events] = await Promise.all([
-			lire("config.json", {}), lire("tasks.json", []), lire("partiels.json", []), lire("events.json", { events: [] }),
+		const [config, tasks, partiels, events, notes] = await Promise.all([
+			lire("config.json", {}), lire("tasks.json", []), lire("partiels.json", []), lire("events.json", { events: [] }), lire("notes.json", null).catch(() => null),
 		]);
-		S.data = { ...S.data, config, tasks, partiels, events };
+		S.data = { ...S.data, config, tasks, partiels, events, notes };
 		S.horsLigne = false;
 		await chargerRevision().catch(() => {});
 		sauverCache();
@@ -292,6 +292,18 @@ function feuilleReattribuer(t) {
 	});
 }
 
+// ---------- Notes ----------
+// « Nouveau » = arrivée depuis ta dernière visite de la page (rien de nouveau tant que tu ne l'as jamais ouverte)
+const notesNouvelles = () => { const v = store.get("ae.notesVues", ""); return v ? (S.data.notes?.notes || []).filter((x) => x.ajouteLe > v) : []; };
+// UE d'une note à partir de son code Lise (ex. FITE_S7_MATA_DS1 → MATI si « MAT » correspond)
+function ueDeNote(x) {
+	const segs = String(x.code || "").toUpperCase().split(/[_\-\s]+/);
+	for (const u of ues()) { const n = String(u.code || "").toUpperCase(); if (n && segs.some((s) => s === n || (s.length >= 3 && n.length >= 3 && s.slice(0, 3) === n.slice(0, 3)))) return u.code; }
+	const lib = String(x.libelle || "").toUpperCase();
+	for (const u of ues()) for (const m of u.matieres || []) if ((m.motsCles || [m.nom]).some((c) => c && lib.includes(String(c).toUpperCase()))) return u.code;
+	return segs.find((s) => /^[A-Z]{3,5}$/.test(s) && !/^(FITE|GIM|DS|TP|TD|EXAM|CC)$/.test(s)) || "Autres";
+}
+
 // ---------- Vues ----------
 const VUES = {
 	reviser: () => vueReviser(),
@@ -311,7 +323,9 @@ const VUES = {
 			return { titre: libelleJour(c), liste: [...reste, ...cours().filter((e) => jourCle(e.debut) === c)], mixte: reste.length > 0 };
 		})();
 		const ev = S.data.events;
-		return `<p class="date-jour">${h(fmt(new Date(), { weekday: "long", day: "numeric", month: "long" }))}</p>
+		const nNouv = notesNouvelles().length;
+		return `<div class="accueil-haut"><p class="date-jour">${h(fmt(new Date(), { weekday: "long", day: "numeric", month: "long" }))}</p>
+		<a href="#notes" class="pastille-notes" aria-label="Mes notes${nNouv ? ` (${nNouv} nouvelles)` : ""}"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5z"/><path d="M6 10.5v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/><path d="M22 8v6"/></svg>Notes${nNouv ? `<b>${nNouv}</b>` : ""}</a></div>
 		<div class="grille deux">
 			<div class="grille">
 				${hero()}
@@ -324,6 +338,33 @@ const VUES = {
 			</div>
 		</div>
 		<p class="petit" style="margin-top:16px;text-align:center">${ev.majLe ? `Planning Lise vérifié ${h(fmt(ev.majLe, { weekday: "short", hour: "2-digit", minute: "2-digit" }))}${ev.etat && !ev.etat.ok ? " — " + h(ev.etat.message) : ""}` : "Planning pas encore synchronisé."}</p>`;
+	},
+
+	notes() {
+		const n = S.data.notes;
+		const lien = `https://github.com/${APP_REPO}/settings/secrets/actions/new`;
+		if (!n || !(n.notes || []).length) {
+			return `<section class="carte"><h2>Tes notes Lise</h2>${n?.etat && !n.etat.ok ? `<p class="avert-txt">Dernier essai : ${h(n.etat.message)}</p>` : ""}
+			<p>Les notes ne sont pas publiques comme l'emploi du temps : il faut se connecter à Lise avec ton mot de passe (comme Better Lise). La synchro horaire peut le faire pour toi si tu enregistres ton mot de passe comme <b>secret GitHub</b> : chiffré, jamais affiché, ni dans l'appli ni sur le site.</p>
+			<ol class="etapes-simples"><li>Ouvre <a href="${lien}" target="_blank" rel="noopener">la page des secrets du dépôt</a> (connecté à GitHub).</li><li>Name : <code>LISE_PASSWORD</code></li><li>Secret : ton mot de passe Lise, puis <b>Add secret</b>.</li></ol>
+			<p class="petit">Tes notes apparaîtront ici à la synchro suivante (moins d'une heure). Si tu changes ton mot de passe Lise, mets aussi à jour ce secret.</p></section>`;
+		}
+		const vues = store.get("ae.notesVues", "") || "9999";
+		const groupes = new Map();
+		for (const x of n.notes) { const g = ueDeNote(x); if (!groupes.has(g)) groupes.set(g, []); groupes.get(g).push(x); }
+		const moy = (l) => { const v = l.map((x) => x.note).filter((x) => typeof x === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+		const fmtN = (v) => (v == null ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: 2 }));
+		const dateTri = (d) => d.split("/").reverse().join("");
+		const ligne = (x) => `<div class="note-l${x.ajouteLe > vues ? " nouvelle" : ""}"><div class="note-info"><div class="note-nom">${h(x.libelle)}${x.ajouteLe > vues ? ' <span class="badge-nouv">Nouveau</span>' : ""}</div>
+			<div class="petit">${h(x.date)}${x.enseignants ? " · " + h(x.enseignants) : ""}${x.absence && x.absence !== "Non" ? " · absence : " + h(x.absence) : ""}</div>${x.commentaire ? `<div class="petit note-com">« ${h(x.commentaire)} »</div>` : ""}</div>
+			<div class="note-val ${typeof x.note === "number" ? (x.note >= 10 ? "ok" : "ko") : ""}">${typeof x.note === "number" ? fmtN(x.note) : h(x.brut || "–")}</div></div>`;
+		const total = moy(n.notes);
+		setTimeout(() => store.set("ae.notesVues", new Date().toISOString()), 1500);
+		return `<section class="carte notes-tete"><div><div class="petit">Moyenne simple de tes ${n.notes.filter((x) => typeof x.note === "number").length} notes</div><div class="notes-moy ${total >= 10 ? "ok" : "ko"}">${fmtN(total)}<span>/20</span></div></div>
+			<div class="petit">Sans coefficients : indicatif.<br>${n.majLe ? "Dernier changement " + h(fmt(n.majLe, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : ""}</div></section>
+		${n.etat && !n.etat.ok ? `<p class="avert-txt">Synchro des notes en échec : ${h(n.etat.message)}</p>` : ""}
+		${[...groupes].sort((a, b) => a[0].localeCompare(b[0])).map(([g, l]) => `<section class="carte"><h2 style="--c:${couleur(g)}" class="note-ue"><span>${h(g)}${ues().find((u) => u.code === g) ? ` · ${h(ues().find((u) => u.code === g).nom)}` : ""}</span><span class="petit">moy. ${fmtN(moy(l))}</span></h2>
+			${l.sort((a, b) => dateTri(b.date).localeCompare(dateTri(a.date))).map(ligne).join("")}</section>`).join("")}`;
 	},
 
 	agenda() {
@@ -564,13 +605,13 @@ function detailCours(e) {
 }
 
 // ---------- Rendu et évènements ----------
-const TITRES = { accueil: "Accueil", agenda: "Agenda", taches: "Tâches", reviser: "Réviser", matieres: "Matières", reglages: "Réglages" };
+const TITRES = { notes: "Mes notes", accueil: "Accueil", agenda: "Agenda", taches: "Tâches", reviser: "Réviser", matieres: "Matières", reglages: "Réglages" };
 function rendre() {
 	const v = (location.hash.slice(1) || "accueil");
 	S.vue = VUES[v] ? v : "accueil";
 	$("#titre").textContent = TITRES[S.vue];
 	document.querySelectorAll("#onglets a").forEach((a) => a.classList.toggle("actif", a.dataset.v === S.vue));
-	$("#btn-ajout").hidden = !S.token || S.vue === "reviser";
+	$("#btn-ajout").hidden = !S.token || S.vue === "reviser" || S.vue === "notes";
 	$("#onglets").hidden = !S.token;
 	$("#vue").innerHTML = S.token ? VUES[S.vue]() : ecranConnexion();
 	formules($("#vue"));

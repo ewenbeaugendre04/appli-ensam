@@ -42,6 +42,14 @@ jobs:
           OUT_DIR: _site
         run: node scripts/sync.mjs
 
+      - name: Récupérer les notes Lise
+        continue-on-error: true
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPO: ${{ github.repository_owner }}/appli-ensam-data
+          LISE_PASSWORD: ${{ secrets.LISE_PASSWORD }}
+        run: node scripts/notes.mjs
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

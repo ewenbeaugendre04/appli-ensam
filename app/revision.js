@@ -24,11 +24,13 @@ async function chargerRevision() {
 	const idx = await lire("revision/index.json", { chapitres: [] });
 	const progres = await lire("revision/progres.json", {});
 	const rendus = await lire("revision/rendus.json", []);
+	const signalements = await lire("revision/signalements.json", []).catch(() => []);
 	const chs = await Promise.all((idx.chapitres || []).map((c) => lire(`revision/chapitres/${c.id}.json`, null).catch(() => null)));
-	S.data.revision = { index: idx, rendus };
+	S.data.revision = { index: idx, rendus, signalements };
 	S.data.progres = fusionProgres(progres, store.get("ae.progres.local", {}));
 	R.chap = {};
 	chs.forEach((c) => { if (c) R.chap[c.id] = c; });
+	appliquerMasques();
 	store.set("ae.chap", R.chap);
 	DICO = null;
 }
@@ -36,8 +38,47 @@ function initRevisionCache() {
 	if (!S.data.revision) S.data.revision = { index: { chapitres: [] }, rendus: [] };
 	if (!S.data.progres) S.data.progres = {};
 	R.chap = store.get("ae.chap", {});
+	appliquerMasques();
 	R.brouillons = store.get("ae.brouillons", {});
 }
+// Éléments retirés : masqués par la tâche de nuit, ou signalés « inutile » (en attente de traitement)
+function appliquerMasques() {
+	const inutiles = new Set((S.data.revision?.signalements || []).filter((x) => x.raison === "inutile" && x.statut !== "garde").map((x) => x.cle));
+	for (const ch of Object.values(R.chap)) ch.items = (ch.items || []).filter((it) => !it.masque && !inutiles.has(cle(ch.id, it.id)));
+}
+
+// ---------- Signaler une question ----------
+const RAISONS = [["inutile", "Question inutile", "elle disparaît tout de suite de tes révisions"], ["mal_posee", "Mal posée ou ambiguë", ""], ["fausse", "Réponse ou correction fausse", ""], ["explication", "Explication pas claire", ""], ["autre", "Autre", ""]];
+function feuilleSignaler(k) {
+	const x = item(k); if (!x?.it) return;
+	const apercu = x.it.recto || x.it.question || x.it.terme || x.it.nom || x.it.enonce || x.it.titre || x.it.consigne || "";
+	ouvrirFeuille(`<h3>Signaler cette question</h3>
+		<p class="petit">${inline(h(String(apercu).slice(0, 140)))}${String(apercu).length > 140 ? "…" : ""}</p>
+		<div class="r-raisons">${RAISONS.map(([v, l, d], i) => `<label class="choix"><input type="radio" name="sig" value="${v}" ${i === 0 ? "checked" : ""}><span>${h(l)}${d ? `<br><span class="petit">${h(d)}</span>` : ""}</span></label>`).join("")}</div>
+		<label for="sig-txt">Précise si tu veux (facultatif)</label><textarea id="sig-txt" rows="3" placeholder="Ex. deux réponses sont justes"></textarea>
+		<div class="actions"><button class="bouton" data-fermer>Annuler</button><button class="bouton plein" data-r-sig-ok="${h(k)}">Envoyer</button></div>
+		<p class="petit">La tâche de nuit corrige ou retire la question.</p>`);
+}
+async function envoyerSignalement(k) {
+	const raison = document.querySelector('input[name="sig"]:checked')?.value || "autre";
+	const commentaire = ($("#sig-txt")?.value || "").trim();
+	const s = { id: uid(), cle: k, raison, commentaire, statut: "en_attente", le: new Date().toISOString() };
+	fermerFeuille();
+	S.data.revision.signalements = [...(S.data.revision.signalements || []), s];
+	const carte = document.querySelector(`[data-r-signaler="${CSS.escape(k)}"]`)?.closest(".r-carte");
+	if (carte) { carte.querySelector(".r-signaler").outerHTML = `<span class="r-signale">✓ Signalé</span>`; }
+	if (raison === "inutile") appliquerMasques();
+	alerteDouce(raison === "inutile" ? "Merci ! Cette question ne te sera plus proposée." : "Merci ! Elle sera revue cette nuit.");
+	try { await modifier("revision/signalements.json", "signalements", (l) => [...l, s], "Signalement d'une question", { cible: "revision", sansSynchro: true }); }
+	catch { alerteDouce("Signalement non envoyé (hors ligne ?) : réessaie plus tard."); }
+}
+document.addEventListener("click", (e) => {
+	const a = e.target.closest("[data-r-signaler]");
+	if (a) { e.preventDefault(); e.stopPropagation(); feuilleSignaler(a.dataset.rSignaler); return; }
+	const ok = e.target.closest("[data-r-sig-ok]");
+	if (ok) { e.preventDefault(); envoyerSignalement(ok.dataset.rSigOk); }
+}, true);
+
 function fusionProgres(a = {}, b = {}) {
 	const out = { ...a };
 	for (const [k, v] of Object.entries(b)) if (!out[k] || (v.maj || "") > (out[k].maj || "")) out[k] = v;
@@ -325,7 +366,8 @@ function melangerChoix(it) {
 // ---------- Rendu d'un élément ----------
 function carteItem(ch, it, mode = "liste") {
 	const k = cle(ch.id, it.id);
-	const tete = `<div class="r-type" style="--c:${couleur(ch.ue)}">${TYPES[it.type] || it.type} · <span class="r-niv">${NIVEAUX[niveauDe(it)]}</span></div>`;
+	const deja = (S.data.revision?.signalements || []).some((x) => x.cle === k && x.statut === "en_attente");
+	const tete = `<div class="r-tete"><div class="r-type" style="--c:${couleur(ch.ue)}">${TYPES[it.type] || it.type} · <span class="r-niv">${NIVEAUX[niveauDe(it)]}</span></div>${it.type === "fiche" ? "" : deja ? `<span class="r-signale">✓ Signalé</span>` : `<button type="button" class="r-signaler" data-r-signaler="${h(k)}" aria-label="Signaler un problème sur cette question">?</button>`}</div>`;
 	const indices = (it.indices || []).length ? `<button class="bouton petit-b" data-r-indice="${h(k)}">💡 Indice</button><div class="r-indices" id="ind-${h(k)}"></div>` : "";
 	switch (it.type) {
 		case "fiche":
