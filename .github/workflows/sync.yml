@@ -47,7 +47,7 @@ jobs:
         env:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
           DATA_REPO: ${{ github.repository_owner }}/appli-ensam-data
-          LISE_PASSWORD: ${{ secrets.LISE_PASSWORD }}
+          LISE_PASSWORD: ${{ secrets.LISE_PASSWORD || vars.LISE_PASSWORD }}
         run: node scripts/notes.mjs
 
       - uses: actions/configure-pages@v5

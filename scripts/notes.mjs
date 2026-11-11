@@ -94,7 +94,16 @@ async function pageNotes() {
 
 // ---------- Programme ----------
 async function main() {
-	if (!LOCAL_HTML && !PASS) { console.log("Pas de secret LISE_PASSWORD : notes non synchronisées."); return; }
+	if (!LOCAL_HTML && !PASS) {
+		console.log("Pas de secret LISE_PASSWORD : notes non synchronisées.");
+		// On le signale dans l'appli pour que ce soit visible
+		if (TOKEN) {
+			const { data, sha } = await lireNotes();
+			const message = "Le secret LISE_PASSWORD est introuvable dans le dépôt appli-ensam (Settings → Secrets and variables → Actions → onglet Secrets → Repository secrets).";
+			if (data.etat?.message !== message) await ecrireNotes({ ...data, etat: { ok: false, message }, essaiLe: new Date().toISOString() }, sha, "Notes : secret absent");
+		}
+		return;
+	}
 	if (!LOCAL_HTML && !TOKEN) throw new Error("Secret DATA_TOKEN manquant");
 	if (!USER && !LOCAL_HTML) {
 		const r = await gh("config.json");
