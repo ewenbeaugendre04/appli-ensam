@@ -183,31 +183,31 @@ ${src(it, ch)}</div>`;
 		case "equation":
 			if (mode === "session") return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}
 				<p>Écris la formule de tête, puis vérifie.</p><div class="r-cache" id="v-${h(k)}" hidden>${formuleBloc(it)}</div>
-				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Voir la formule</button></div>${notation(k)}${blocAide(it, k)}</div>`;
-			return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${formuleBloc(it)}${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}${blocAide(it, k, false)}${src(it, ch)}</div>`;
+				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Voir la formule</button></div>${notation(k)}${blocAide(ch, it, k)}</div>`;
+			return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${formuleBloc(it)}${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}${blocAide(ch, it, k, false)}${src(it, ch)}</div>`;
 		case "definition":
 		case "flash": {
 			const recto = it.type === "flash" ? it.recto : it.terme, verso = it.type === "flash" ? it.verso : it.definition;
-			if (mode === "liste" && it.type === "definition") return `<div class="r-carte">${tete}<h3>${h(recto)}</h3><div class="r-md">${md(verso)}</div>${blocAide(it, k, false)}${src(it, ch)}</div>`;
+			if (mode === "liste" && it.type === "definition") return `<div class="r-carte">${tete}<h3>${h(recto)}</h3><div class="r-md">${md(verso)}</div>${blocAide(ch, it, k, false)}${src(it, ch)}</div>`;
 			return `<div class="r-carte r-flash">${tete}<div class="r-recto">${md(recto)}</div>
 				<div class="r-cache" id="v-${h(k)}" hidden><hr><div class="r-md">${md(verso)}</div>${src(it, ch)}</div>
-				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Retourner la carte</button></div>${notation(k)}${blocAide(it, k)}</div>`;
+				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Retourner la carte</button></div>${notation(k)}${blocAide(ch, it, k)}</div>`;
 		}
 		case "qcm":
 			return `<div class="r-carte">${tete}<div class="r-md">${md(it.question)}</div>
 				<div class="r-choix">${it.choix.map((c, i) => `<button class="r-choix-b" data-r-qcm="${h(k)}" data-i="${i}">${String.fromCharCode(65 + i)}. ${inline(h(c))}</button>`).join("")}</div>
-				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(it, k)}<div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
+				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}<div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
 		case "trous": {
 			let n = 0;
 			const html = h(it.texte).replace(/\[\[(.+?)\]\]/g, (_, rep) => `<input class="r-trou" data-rep="${rep}" data-n="${n++}" data-r-trou-de="${h(k)}" enterkeyhint="next" size="${Math.max(4, rep.split("|")[0].length)}" autocomplete="off" autocapitalize="off" spellcheck="false">`);
 			return `<div class="r-carte">${tete}${it.titre ? `<h3>${h(it.titre)}</h3>` : ""}<div class="r-trous" id="t-${h(k)}">${html}</div>
-				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(it, k)}
+				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}
 				<div class="r-actions"><button class="bouton petit-b" data-r-solution="${h(k)}">Voir les réponses</button></div>${src(it, ch)}</div>`;
 		}
 		case "calcul":
 			return `<div class="r-carte">${tete}<div class="r-md">${md(it.enonce)}</div>${it.donnees ? `<div class="r-donnees">${md(it.donnees)}</div>` : ""}
 				<div class="r-rep"><input type="text" inputmode="decimal" enterkeyhint="done" id="c-${h(k)}" data-r-calc="${h(k)}" placeholder="Ta réponse, puis Entrée"><span>${h(it.reponse?.unite || "")}</span></div>
-				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(it, k)}
+				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}
 				<div class="r-actions">${indices}</div>
 				<div class="r-actions">${boutonClaude(ch, it)}<button class="bouton petit-b" data-r-solution="${h(k)}">Solution</button></div>
 				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div></div>
@@ -232,9 +232,13 @@ ${src(it, ch)}</div>`;
 	}
 	return "";
 }
-function blocAide(it, k, cache = true) {
+function lienExplication(ch, it) {
+	const quoi = it.recto || it.terme || it.nom || it.question || it.titre || it.enonce || "";
+	return "https://claude.ai/new?q=" + encodeURIComponent(`Je suis étudiant à l'ENSAM et je révise « ${ch.titre} » (${ch.ue}). Explique-moi cet élément :\n${quoi}${it.formule ? "\nFormule : " + it.formule : ""}\n\n1) en mots simples (le phénomène physique), 2) avec un exemple concret, 3) le sens de chaque lettre ou terme avec son unité, 4) ce qui se passe quand on fait varier chaque paramètre (avec des chiffres). Appuie-toi sur un cours de mécanique de niveau ingénieur.`);
+}
+function blocAide(ch, it, k, cache = true) {
 	const a = it.aide;
-	if (!a) return "";
+	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary><p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>`;
 	const termes = (a.termes || []).length ? `<div class="r-aide-t">🔤 Les lettres et les mots</div><table class="r-vars">${a.termes.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
 	const corps = `${a.simple ? `<div class="r-aide-t">🧠 En mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
 		${a.exemple ? `<div class="r-aide-t">🔧 Exemple concret</div><div class="r-md">${md(a.exemple)}</div>` : ""}
@@ -244,7 +248,7 @@ function blocAide(it, k, cache = true) {
 }
 function montrerAide(k) {
 	const a = $(`#a-${CSS.escape(k)}`);
-	if (a) { a.hidden = false; formules(a); }
+	if (a) { a.hidden = false; if (R.session) a.open = true; formules(a); }
 }
 function statutRendu(k) {
 	const rendu = (S.data.revision.rendus || []).filter((r) => r.cle === k).sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -281,7 +285,8 @@ function vueReviser() {
 				<div class="info">${dus.length ? `Session de 25 max (${dus.length} en attente au total). Ce que tu oublies revient plus souvent.` : "Lance une session mélangée pour t'entraîner."}</div>
 			</div>
 			<div class="rang"><button class="bouton large" data-r-session="melange">🔀 Session mélangée</button><button class="bouton large" data-r-prochain-partiel>🎯 Prochain partiel</button></div>
-			${(() => { const ps = partielsTous().filter((p) => jourCle(p.debut) >= auj()).slice(0, 5); return ps.length ? `<section class="carte"><h2>Mes partiels</h2>${ps.map((p) => { const n = joursEntre(auj(), jourCle(p.debut)), pr = preparation(chapitresPartiel(p)); return `<div class="ligne cliquable" data-partiel-voir="${h(p.id)}"><div class="compte ${n <= 7 ? "proche" : ""}"><b>${n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div><div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${h(p.matiere || "matière à préciser")}${p.description ? " · 📋 attendus" : ""}</div><div class="r-barre"><span style="width:${pr}%"></span></div></div><div class="petit">${pr}%</div></div>`; }).join("")}</section>` : ""; })()}
+			<button class="bouton large" data-r-repartition>⚖️ Répartition des matières : ${S.data.config.repartition?.mode === "manuel" ? "personnalisée" : "automatique"}</button>
+			${(() => { const ps = partielsTous().filter((p) => jourCle(p.debut) >= auj()); return ps.length ? `<section class="carte"><h2>Mes partiels</h2>${ps.map((p) => { const n = joursEntre(auj(), jourCle(p.debut)), pr = preparation(chapitresPartiel(p)); return `<div class="ligne cliquable" data-partiel-voir="${h(p.id)}"><div class="compte ${n <= 7 ? "proche" : ""}"><b>${n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div><div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${h(p.matiere || "matière à préciser")}${p.description ? " · 📋 attendus" : ""}</div><div class="r-barre"><span style="width:${pr}%"></span></div></div><div class="petit">${pr}%</div></div>`; }).join("")}</section>` : ""; })()}
 			${rendus.length ? `<section class="carte"><h2>Mes rendus</h2>${rendus.slice(0, 5).map((r) => { const x = item(r.cle); return `<div class="ligne cliquable" data-r-ouvrir="${h(r.cle.split(":")[0])}"><div class="corps"><div class="t">${h(x?.it ? TYPES[x.it.type] + " · " + (x.ch.titre) : r.cle)}</div><div class="s">${r.statut === "en_attente" ? "⏳ En attente de validation" : r.statut === "valide" ? "✅ Validé" : "✏️ À retravailler"}${r.note != null ? ` · ${h(r.note)}/10` : ""}</div></div></div>`; }).join("")}</section>` : ""}
 		</div>
 		<div class="grille">${Object.entries(parUe).map(([ue, liste]) => `<section class="carte"><h2>${h(ue)} · ${h(ues().find((u) => u.code === ue)?.nom || "")}</h2>${liste.map((ch) => {
@@ -366,6 +371,73 @@ function vueSession() {
 		<div class="r-actions" style="margin-top:14px"><button class="bouton large ${s.repondu ? "plein" : ""}" data-r-suivant>${s.repondu ? "Suivant ›" : "Passer ›"}</button></div>`;
 }
 
+// ---------- Répartition des sessions par UE ----------
+function uesAvecChapitres() { return [...new Set(Object.values(R.chap).filter((c) => !c.partiel).map((c) => c.ue))]; }
+function repartitionAuto() {
+	const out = {};
+	const futurs = partielsTous().filter((p) => jourCle(p.debut) >= auj());
+	for (const ue of uesAvecChapitres()) {
+		const w = futurs.filter((p) => (p.matiere || "").split(" / ")[0] === ue || chapitresPartiel(p).some((c) => c.ue === ue))
+			.reduce((a, p) => a + 1 / (1 + joursEntre(auj(), jourCle(p.debut)) / 7), 0);
+		out[ue] = 0.25 + w; // chaque UE garde une place minimale
+	}
+	const tot = Object.values(out).reduce((a, b) => a + b, 0) || 1;
+	for (const k in out) out[k] /= tot;
+	return out;
+}
+function repartition() {
+	const r = S.data.config.repartition;
+	if (r && r.mode === "manuel" && r.parts) {
+		const tot = Object.values(r.parts).reduce((a, b) => a + b, 0);
+		if (tot > 0) return Object.fromEntries(uesAvecChapitres().map((u) => [u, (r.parts[u] || 0) / tot]));
+	}
+	return repartitionAuto();
+}
+// Tire `total` éléments en respectant les parts de chaque UE ; priorité aux éléments les moins maîtrisés
+function tirage(candidats, total) {
+	const parts = repartition(), boite = (x) => (S.data.progres[x.k] || {}).boite || 0;
+	const parUe = {};
+	for (const x of candidats) (parUe[x.ch.ue] ||= []).push(x);
+	for (const l of Object.values(parUe)) l.sort((a, b) => boite(a) - boite(b) + (Math.random() - 0.5) * 1.5);
+	const choisis = [];
+	for (const [ue, f] of Object.entries(parts)) {
+		const l = parUe[ue] || [];
+		choisis.push(...l.splice(0, Math.round(f * total)));
+	}
+	const reste = Object.values(parUe).flat().sort((a, b) => boite(a) - boite(b));
+	while (choisis.length < total && reste.length) choisis.push(reste.shift());
+	return choisis.slice(0, total);
+}
+function feuilleRepartition() {
+	const r = S.data.config.repartition || { mode: "auto", parts: {} };
+	const auto = repartitionAuto(), ues_ = uesAvecChapitres();
+	const val = (u) => (r.mode === "manuel" && r.parts?.[u] != null ? r.parts[u] : Math.round(auto[u] * 100));
+	ouvrirFeuille(`<h3>Répartition des sessions</h3>
+		<p class="petit">Part de chaque UE dans les sessions « À revoir » et « Mélangée ».</p>
+		<form id="f-rep">
+			<label class="choix"><input type="radio" name="rep-mode" value="auto" ${r.mode !== "manuel" ? "checked" : ""}><span><b>Automatique</b><br><span class="petit">Plus de place aux partiels proches, mais toutes les UE restent présentes</span></span></label>
+			<label class="choix"><input type="radio" name="rep-mode" value="manuel" ${r.mode === "manuel" ? "checked" : ""}><span><b>Je choisis</b><br><span class="petit">Règle le pourcentage de chaque UE</span></span></label>
+			<div id="rep-ues">${ues_.map((u) => `<div class="rep-ligne"><span class="pastille-ue" style="--c:${couleur(u)}">${h(u)}</span><input type="range" min="0" max="100" step="5" name="rep-${h(u)}" data-ue="${h(u)}" value="${val(u)}"><b id="rv-${h(u)}">${val(u)}</b></div>`).join("")}</div>
+			<p class="petit" id="rep-total"></p>
+			<div class="actions"><button type="button" class="bouton" data-fermer>Annuler</button><button class="bouton plein">Enregistrer</button></div>
+		</form>`);
+	const f = $("#f-rep");
+	const maj = () => {
+		const manuel = f.querySelector('[name="rep-mode"]:checked').value === "manuel";
+		const tot = [...f.querySelectorAll("[data-ue]")].reduce((a, x) => a + Number(x.value), 0);
+		f.querySelectorAll("[data-ue]").forEach((x) => { x.disabled = !manuel; $(`#rv-${CSS.escape(x.dataset.ue)}`).textContent = manuel && tot ? Math.round((100 * x.value) / tot) + " %" : Math.round(auto[x.dataset.ue] * 100) + " %"; });
+		$("#rep-total").textContent = manuel ? "Les pourcentages sont recalculés pour faire 100 %." : "Calculé à partir de tes prochains partiels.";
+	};
+	f.addEventListener("input", maj); f.addEventListener("change", maj); maj();
+	f.addEventListener("submit", (e) => {
+		e.preventDefault();
+		const mode = f.querySelector('[name="rep-mode"]:checked').value;
+		const parts = Object.fromEntries([...f.querySelectorAll("[data-ue]")].map((x) => [x.dataset.ue, Number(x.value)]));
+		fermerFeuille();
+		action(() => modifier("config.json", "config", (c) => ({ ...c, repartition: { mode, parts } }), "Répartition des révisions", { sansSynchro: true }));
+	});
+}
+
 function demarrerSession(type) {
 	const now = auj();
 	let liste = [], titre = "";
@@ -373,14 +445,11 @@ function demarrerSession(type) {
 	const travail = (x) => RECALL.includes(x.it.type) || EXOS.includes(x.it.type);
 	if (type === "dus") {
 		titre = "À revoir";
-		liste = tousItems().filter((x) => travail(x) && estDu(x.k)).sort((a, b) => ((S.data.progres[a.k] || {}).boite || 0) - ((S.data.progres[b.k] || {}).boite || 0)).slice(0, 25);
-		liste = melanger(liste);
+		const dus = tousItems().filter((x) => travail(x) && estDu(x.k));
+		liste = melanger(tirage(dus, Math.min(25, dus.length)));
 	} else if (type === "melange") {
 		titre = "Session mélangée";
-		// Entraînement entrelacé : plusieurs chapitres, priorité aux partiels proches
-		const poids = (x) => { const j = partielDe(x.ch); return (j != null ? 30 / (1 + j) : 0) + Math.random() * 2 + (EXOS.includes(x.it.type) ? 1 : 0); };
-		liste = tousItems().filter(travail).sort((a, b) => poids(b) - poids(a)).slice(0, 12);
-		liste = melanger(liste);
+		liste = melanger(tirage(tousItems().filter(travail), 20));
 	} else if (type.startsWith("partiel:")) {
 		const [, pid, mode] = type.split(":");
 		const p = trouverPartiel(pid);
@@ -477,12 +546,13 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- Évènements ----------
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-r-ouvrir],[data-r-retour],[data-r-session],[data-r-prochain-partiel],[data-r-modif-partiel],[data-r-fin],[data-r-suivant],[data-r-montrer],[data-r-note],[data-r-qcm],[data-r-trous],[data-r-calcul],[data-r-solution],[data-r-indice],[data-r-comparer],[data-r-envoyer],[data-r-claude-txt],[data-r-chrono]");
+	const el = e.target.closest("[data-r-ouvrir],[data-r-retour],[data-r-session],[data-r-prochain-partiel],[data-r-modif-partiel],[data-r-repartition],[data-r-fin],[data-r-suivant],[data-r-montrer],[data-r-note],[data-r-qcm],[data-r-trous],[data-r-calcul],[data-r-solution],[data-r-indice],[data-r-comparer],[data-r-envoyer],[data-r-claude-txt],[data-r-chrono]");
 	if (!el) return;
 	const d = el.dataset;
 	if (d.rOuvrir) { R.ouvert = d.rOuvrir; R.session = null; location.hash = "#reviser"; rendre(); window.scrollTo(0, 0); return; }
 	if ("rRetour" in d) { if (R.ouvert) R.ouvert = null; else R.partiel = null; rendre(); window.scrollTo(0, 0); return; }
 	if (d.rSession) return demarrerSession(d.rSession);
+	if ("rRepartition" in d) return feuilleRepartition();
 	if ("rProchainPartiel" in d) { const p = partielsTous().find((x) => jourCle(x.debut) >= auj()); if (!p) { alerteDouce("Aucun partiel à venir."); return; } R.partiel = p.id; rendre(); window.scrollTo(0, 0); return; }
 	if (d.rModifPartiel) {
 		const p = trouverPartiel(d.rModifPartiel);
