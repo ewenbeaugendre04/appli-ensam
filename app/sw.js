@@ -1,5 +1,5 @@
 // Cache de l'application pour l'ouvrir même sans réseau (les données sont gardées par app.js)
-const CACHE = "appli-ensam-v13";
+const CACHE = "appli-ensam-v14";
 const FICHIERS = ["./", "index.html", "style.css", "app.js", "revision.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {

@@ -30,6 +30,7 @@ async function chargerRevision() {
 	R.chap = {};
 	chs.forEach((c) => { if (c) R.chap[c.id] = c; });
 	store.set("ae.chap", R.chap);
+	DICO = null;
 }
 function initRevisionCache() {
 	if (!S.data.revision) S.data.revision = { index: { chapitres: [] }, rendus: [] };
@@ -148,6 +149,63 @@ function lienClaude(ch, it, extra = "") {
 const boutonClaude = (ch, it, extra) => `<a class="bouton petit-b r-claude" href="${h(lienClaude(ch, it, extra))}" target="_blank" rel="noopener" data-r-claude="${h(cle(ch.id, it.id))}">✦ Résoudre avec Claude</a>`;
 
 
+
+// ---------- Glossaire automatique des variables ----------
+// Dictionnaire construit à partir des tableaux de variables des équations et des « termes » des aides
+const BASE_SYMBOLES = {
+	"\\sigma": ["contrainte normale", "MPa"], "\\tau": ["contrainte tangentielle (cisaillement)", "MPa"], "\\varepsilon": ["déformation (allongement relatif)", "sans unité"],
+	"E": ["module d'Young (rigidité du matériau)", "MPa ou GPa"], "G": ["module de cisaillement", "MPa"], "\\nu": ["coefficient de Poisson", "sans unité"],
+	"N": ["effort normal", "N"], "F": ["force", "N"], "L": ["longueur", "mm ou m"], "\\Delta L": ["allongement", "mm"], "I": ["moment quadratique", "mm⁴"],
+	"\\rho": ["masse volumique", "kg/m³ ou g/cm³"], "T": ["température absolue ou effort tranchant (selon le contexte)", "K ou N"], "R": ["constante des gaz parfaits 8,314 (ou rayon selon le contexte)", "J/(mol·K)"],
+	"\\varphi": ["fraction volumique de renfort", "sans unité"], "\\alpha": ["coefficient de dilatation (ou angle selon le contexte)", "°C⁻¹"], "\\eta": ["viscosité", "Pa·s"],
+	"M_f": ["moment fléchissant", "N·mm"], "M_t": ["moment de torsion", "N·mm"], "I_0": ["moment quadratique polaire", "mm⁴"], "T_y": ["effort tranchant", "N"], "S": ["aire de la section", "mm²"],
+	"\\theta": ["angle", "rad"], "\\gamma": ["glissement (angle)", "rad"], "\\lambda": ["coefficient de Lamé ou taux d'élongation", "—"], "\\mu": ["coefficient de Lamé", "Pa"],
+};
+const normSym = (x) => String(x).replace(/\$/g, "").replace(/\\[,;! ]/g, "").replace(/\\(mathrm|text)\{([^}]*)\}/g, "$2").replace(/\s+/g, "").replace(/[{}]/g, "").replace(/\(.*\)$/, "");
+let DICO = null;
+function dico() {
+	if (DICO) return DICO;
+	DICO = {};
+	const ajoute = (cle, sens, unite, chId) => {
+		for (const k of String(cle).split(/,\s*/)) {
+			const n = normSym(k.replace(/\s*\(.*\)\s*$/, ""));
+			if (!n || n.length > 14) continue;
+			(DICO[n] ||= []).push({ sens, unite: unite || "", chId });
+		}
+	};
+	// d'abord les tableaux de variables des équations (plus précis), puis les termes des aides
+	for (const ch of Object.values(R.chap)) for (const it of ch.items || []) (it.variables || []).forEach(([sy, sens, u]) => ajoute(sy, sens, u, ch.id));
+	for (const ch of Object.values(R.chap)) for (const it of ch.items || []) (it.aide?.termes || []).forEach(([t, sens]) => { const m = String(t).match(/^\$([^$]+)\$/); if (m && !/,/.test(m[1])) ajoute(m[1], sens, "", ch.id); });
+	return DICO;
+}
+function symbolesDe(it) {
+	const textes = [it.recto, it.verso, it.terme, it.definition, it.question, ...(it.choix || []), it.explication, it.enonce, it.donnees, it.solution, it.formule ? "$" + it.formule + "$" : "", it.texte, ...(it.indices || [])].filter(Boolean).join(" ");
+	const out = new Set();
+	for (const m of textes.matchAll(/\$\$?([^$]+)\$\$?/g)) {
+		const f = m[1].replace(/\\(frac|dfrac|tfrac|sqrt|left|right|cdot|times|approx|le|leq|ge|geq|quad|qquad|Rightarrow|to|partial|int|sum|exp|ln|cos|sin|tan|mathrm|text|underline|vec|pm|infty|xrightarrow|begin|end|pmatrix|forall|in|ldots|cdots|operatorname|max|min)(?![A-Za-z])/g, " ");
+		for (const t of f.matchAll(/\\Delta\s*[A-Za-z](?:_\{[^}]*\}|_[A-Za-z0-9])?|\\[A-Za-z]+(?:_\{[^}]*\}|_[A-Za-z0-9])?|[A-Za-z](?:_\{[^}]*\}|_[A-Za-z0-9]+)?/g)) {
+			const n = normSym(t[0]);
+			if (/^(d|x|y|z|e|i|j|k|m|n|s)$/.test(n) && !dico()[n]) continue; // variables muettes, unités
+			if (/^(MPa|GPa|mm|kN|mol|Pa|kg|cm)$/.test(n)) continue;
+			out.add(n);
+		}
+	}
+	return [...out];
+}
+function glossaire(ch, it) {
+	const lignes = [];
+	for (const sy of symbolesDe(it)) {
+		const cands = dico()[sy] || [];
+		// une lettre seule n'a de sens que dans le même chapitre ou la même UE (S = section en RDM, mais pas ailleurs)
+		const c = cands.find((x) => x.chId === ch.id) || cands.find((x) => R.chap[x.chId]?.ue === ch.ue) || (sy.length > 1 ? cands[0] : null);
+		const base = BASE_SYMBOLES[sy] || BASE_SYMBOLES[sy.replace(/_.*/, "")];
+		const sens = c?.sens || base?.[0], unite = c?.unite || base?.[1] || "";
+		if (sens && !lignes.some((l) => l.sy === sy)) lignes.push({ sy, sens, unite });
+	}
+	if (!lignes.length) return "";
+	return `<div class="r-aide-t">🔤 Les variables</div><table class="r-vars">${lignes.map((l) => `<tr><td>$${h(l.sy.replace(/_([^{])(.+)/, "_{$1$2}"))}$</td><td>${inline(h(l.sens))}</td><td class="petit">${h(l.unite)}</td></tr>`).join("")}</table>`;
+}
+
 // ---------- Photo d'une résolution (compressée avant envoi) ----------
 R.photos = {};
 function compresserImage(fichier, max = 1600) {
@@ -210,7 +268,7 @@ ${src(it, ch)}</div>`;
 				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}
 				<div class="r-actions">${indices}</div>
 				<div class="r-actions">${boutonClaude(ch, it)}<button class="bouton petit-b" data-r-solution="${h(k)}">Solution</button></div>
-				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div></div>
+				<div class="r-cache" id="s-${h(k)}" hidden><div class="r-md">${md(it.solution || "")}</div>${glossaire(ch, it)}</div>
 				<details class="r-rendu"><summary class="petit">📤 Rendre une résolution complète (texte ou photo) pour correction</summary>
 					<textarea class="r-texte" id="x-${h(k)}" data-r-brouillon="${h(k)}" placeholder="Écris ta démarche, ou joins une photo de ta feuille / ton schéma…">${h((R.brouillons || {})[k] || "")}</textarea>
 					<div class="r-actions">${zonePhoto(k)}<button class="bouton plein petit-b" data-r-envoyer="${h(k)}">Envoyer pour correction</button><a class="bouton petit-b" href="#" data-r-claude-txt="${h(k)}">✦ Corriger avec Claude</a></div>
@@ -238,13 +296,15 @@ function lienExplication(ch, it) {
 }
 function blocAide(ch, it, k, cache = true) {
 	const a = it.aide;
-	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary><p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>`;
-	const termes = (a.termes || []).length ? `<div class="r-aide-t">🔤 Les lettres et les mots</div><table class="r-vars">${a.termes.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
+	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${glossaire(ch, it)}<p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>`;
+	const motsSeuls = (a.termes || []).filter(([t]) => !/^\$/.test(String(t)));
+	const termes = motsSeuls.length ? `<div class="r-aide-t">📖 Les mots à connaître</div><table class="r-vars">${motsSeuls.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
 	const corps = `${a.simple ? `<div class="r-aide-t">🧠 En mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
 		${a.piege ? `<div class="r-aide-t">⚠️ Piège fréquent</div><div class="r-md">${md(a.piege)}</div>` : ""}
 		${a.exemple ? `<div class="r-aide-t">🔧 Exemple concret</div><div class="r-md">${md(a.exemple)}</div>` : ""}
 		${termes}
-		${a.variation ? `<div class="r-aide-t">📈 Et si on fait varier…</div><div class="r-md">${md(a.variation)}</div>` : ""}`;
+		${a.variation ? `<div class="r-aide-t">📈 Et si on fait varier…</div><div class="r-md">${md(a.variation)}</div>` : ""}
+		${glossaire(ch, it)}`;
 	return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${corps}</details>`;
 }
 function montrerAide(k) {
