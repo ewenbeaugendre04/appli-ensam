@@ -229,10 +229,94 @@ async function envoyerImage(chemin, dataUrl, message) {
 }
 const zonePhoto = (k) => `<label class="bouton petit-b r-photo-b">📷 Photo<input type="file" accept="image/*" data-r-photo="${h(k)}" hidden></label><div class="r-apercu" id="p-${h(k)}"></div>`;
 
+// ---------- Écriture (dictée), schémas, niveaux de difficulté ----------
+const RECO = window.SpeechRecognition || window.webkitSpeechRecognition;
+const NIVEAUX = ["", "Base", "Intermédiaire", "Avancé"];
+const niveauDe = (it) => Math.min(3, Math.max(1, Number(it.niveau) || 1));
+const figure = (it) => (it.schema ? `<figure class="r-schema">${it.schema}${it.schemaLegende ? `<figcaption class="petit">${inline(h(it.schemaLegende))}</figcaption>` : ""}</figure>` : "");
+// Niveau accessible : selon la maîtrise du chapitre ; tout est débloqué à l'approche d'un partiel de la matière
+function niveauAutorise(ch) {
+	const j = partielDe(ch);
+	if (j != null && j <= 7) return 3;
+	const m = maitrise(ch);
+	return m >= 70 ? 3 : m >= 35 ? 2 : 1;
+}
+// Score de tri : plus il est petit, plus l'élément passe en premier (peu maîtrisé, niveau accessible)
+function scoreItem(x, cache = {}) {
+	if (!(x.ch.id in cache)) cache[x.ch.id] = niveauAutorise(x.ch);
+	const boite = (S.data.progres[x.k] || {}).boite || 0;
+	return boite + (niveauDe(x.it) <= cache[x.ch.id] ? 0 : 10);
+}
+// Zone de réponse écrite : grande, avec dictée quand le navigateur la permet (sinon le micro du clavier iOS)
+function zoneEcriture(k, placeholder) {
+	const brouillon = (R.brouillons || {})[k] || "";
+	return `<div class="r-ecrire">
+		<textarea class="r-texte" id="x-${h(k)}" data-r-brouillon="${h(k)}" placeholder="${h(placeholder)}" autocapitalize="sentences" spellcheck="true">${h(brouillon)}</textarea>
+		<div class="r-outils">${RECO ? `<button type="button" class="bouton petit-b" data-r-dicter="${h(k)}">🎙️ Dicter</button>` : ""}<span class="petit">${RECO ? "" : "Touche le 🎤 du clavier pour dicter. "}Pas envie d'écrire ? Explique à voix haute, puis coche les points clés plus bas.</span></div>
+	</div>`;
+}
+// Points clés à cocher : on écrit moins, on s'auto-évalue
+const checklist = (k, attendus = [], modele) => (attendus.length ? `<details class="r-checks">
+		<summary>✅ J'ai fini : comparer aux points clés</summary>
+		${attendus.map((a, i) => `<label class="choix"><input type="checkbox" data-r-att="${h(k)}" value="${i}"><span>${inline(h(a))}</span></label>`).join("")}
+		<div class="r-actions"><button class="bouton plein petit-b" data-r-score="${h(k)}">Enregistrer mon score</button></div>
+		${modele ? `<details class="r-modele"><summary class="petit">Voir une réponse modèle</summary><div class="r-md">${md(modele)}</div></details>` : ""}
+	</details>` : "");
+let REC = null;
+function dicter(k, btn) {
+	if (REC) { REC.stop(); return; }
+	const zone = $(`#x-${CSS.escape(k)}`);
+	if (!zone) return;
+	const r = new RECO();
+	r.lang = "fr-FR"; r.continuous = true; r.interimResults = false;
+	r.onresult = (ev) => {
+		let t = "";
+		for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) t += ev.results[i][0].transcript;
+		if (!t.trim()) return;
+		zone.value = (zone.value.trim() ? zone.value.trimEnd() + " " : "") + t.trim();
+		zone.dispatchEvent(new Event("input", { bubbles: true }));
+	};
+	r.onerror = (ev) => alerteDouce(ev.error === "not-allowed" ? "Autorise le micro dans les réglages de ton navigateur." : "Dictée interrompue : réessaie, ou utilise le micro du clavier.");
+	r.onend = () => { REC = null; btn.textContent = "🎙️ Dicter"; };
+	REC = r;
+	btn.textContent = "⏹ Arrêter";
+	r.start();
+}
+// Banque de mots pour les textes à trous : les bonnes réponses, plus quelques leurres pris ailleurs dans le chapitre
+function banqueMots(ch, it, k) {
+	const mots = (texte) => (String(texte).match(/\[\[(.+?)\]\]/g) || []).map((m) => m.slice(2, -2).split("|")[0]);
+	const bonnes = mots(it.texte);
+	const autres = (ch.items || []).filter((x) => x.type === "trous" && x.id !== it.id).flatMap((x) => mots(x.texte));
+	const leurres = [...new Set(autres.filter((m) => !bonnes.includes(m)))].sort(() => Math.random() - 0.5).slice(0, 3);
+	const liste = [...bonnes, ...leurres].sort(() => Math.random() - 0.5);
+	return `<div class="r-banque" id="b-${h(k)}" hidden>${liste.map((m) => `<button type="button" class="r-chip" data-r-chip="${h(k)}" data-mot="${h(m)}">${h(m)}</button>`).join("")}<p class="petit">Touche un mot pour le placer dans le trou sélectionné (ou le premier trou vide). Les mots qui ne vont pas restent en rouge.</p></div>`;
+}
+
+// Touches absentes du pavé numérique iOS : signe moins et puissance de 10
+const clavierPlus = (id) => `<span class="r-touches"><button type="button" class="r-touche" data-r-touche="${h(id)}" data-t="-">−</button><button type="button" class="r-touche" data-r-touche="${h(id)}" data-t="e">×10ⁿ</button></span>`;
+// Calcul guidé : une case par étape, vérifiée au fur et à mesure (méthode de l'exemple « estompé »)
+function etapes(it, k) {
+	if (!(it.etapes || []).length) return "";
+	return `<ol class="r-etapes">${it.etapes.map((e, i) => `<li class="r-etape"><div class="r-md">${md(e.question)}</div>
+		<div class="r-rep"><input type="text" inputmode="decimal" id="e-${h(k)}-${i}" data-r-etape="${h(k)}" data-i="${i}" placeholder="Valeur"><span>${h(e.unite || "")}</span>${clavierPlus(`e-${k}-${i}`)}<button class="bouton petit-b" data-r-etape-v="${h(k)}" data-i="${i}">✓</button></div>
+		<div class="r-retour" id="er-${h(k)}-${i}"></div></li>`).join("")}</ol>`;
+}
+function corrigerEtape(k, i) {
+	const x = item(k); if (!x?.it) return;
+	const e = x.it.etapes[i], champ = $(`#e-${CSS.escape(k)}-${i}`), zone = $(`#er-${CSS.escape(k)}-${i}`);
+	const v = nombre(champ.value), att = Number(e.valeur), tol = e.tolerance ?? 0.02;
+	if (v == null) { zone.innerHTML = `<div class="r-msg ko">Entre un nombre.</div>`; return; }
+	const ok = att === 0 ? Math.abs(v) < 1e-9 : Math.abs(v - att) / Math.abs(att) <= tol;
+	champ.classList.toggle("bon", ok); champ.classList.toggle("faux", !ok);
+	zone.innerHTML = ok ? `<div class="r-msg ok">✓ Juste${e.apres ? " · " + inline(h(e.apres)) : ""}</div>` : `<div class="r-msg ko">✗ Pas encore.${e.indice ? ` <button type="button" class="lien" data-r-etape-ind="${h(k)}" data-i="${i}">Un coup de pouce ?</button>` : ""}</div>`;
+	formules(zone);
+	if (ok) $(`#e-${CSS.escape(k)}-${i + 1}`)?.focus();
+}
+
 // ---------- Rendu d'un élément ----------
 function carteItem(ch, it, mode = "liste") {
 	const k = cle(ch.id, it.id);
-	const tete = `<div class="r-type" style="--c:${couleur(ch.ue)}">${TYPES[it.type] || it.type}</div>`;
+	const tete = `<div class="r-type" style="--c:${couleur(ch.ue)}">${TYPES[it.type] || it.type} · <span class="r-niv">${NIVEAUX[niveauDe(it)]}</span></div>`;
 	const indices = (it.indices || []).length ? `<button class="bouton petit-b" data-r-indice="${h(k)}">💡 Indice</button><div class="r-indices" id="ind-${h(k)}"></div>` : "";
 	switch (it.type) {
 		case "fiche":
@@ -240,9 +324,9 @@ function carteItem(ch, it, mode = "liste") {
 ${src(it, ch)}</div>`;
 		case "equation":
 			if (mode === "session") return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}
-				<p>Écris la formule de tête, puis vérifie.</p><div class="r-cache" id="v-${h(k)}" hidden>${formuleBloc(it)}</div>
+				<div class="r-md">${md(it.question || "Écris la formule de tête (sur papier ou dans ta tête), puis vérifie.")}</div><div class="r-cache" id="v-${h(k)}" hidden>${formuleBloc(it)}</div>
 				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Voir la formule</button></div>${notation(k)}${blocAide(ch, it, k)}</div>`;
-			return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${formuleBloc(it)}${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}${blocAide(ch, it, k, false)}${src(it, ch)}</div>`;
+			return `<div class="r-carte">${tete}<h3>${h(it.nom)}</h3>${formuleBloc(it)}${figure(it)}${it.quand ? `<p class="petit">${h(it.quand)}</p>` : ""}${blocAide(ch, it, k, false)}${src(it, ch)}</div>`;
 		case "definition":
 		case "flash": {
 			const recto = it.type === "flash" ? it.recto : it.terme, verso = it.type === "flash" ? it.verso : it.definition;
@@ -252,7 +336,7 @@ ${src(it, ch)}</div>`;
 				<div class="r-actions"><button class="bouton plein" data-r-montrer="${h(k)}">Retourner la carte</button></div>${notation(k)}${blocAide(ch, it, k)}</div>`;
 		}
 		case "qcm":
-			return `<div class="r-carte">${tete}<div class="r-md">${md(it.question)}</div>
+			return `<div class="r-carte">${tete}<div class="r-md">${md(it.question)}</div>${figure(it)}
 				<div class="r-choix">${it.choix.map((c, i) => `<button class="r-choix-b" data-r-qcm="${h(k)}" data-i="${i}">${String.fromCharCode(65 + i)}. ${inline(h(c))}</button>`).join("")}</div>
 				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}<div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
 		case "trous": {
@@ -260,11 +344,12 @@ ${src(it, ch)}</div>`;
 			const html = h(it.texte).replace(/\[\[(.+?)\]\]/g, (_, rep) => `<input class="r-trou" data-rep="${rep}" data-n="${n++}" data-r-trou-de="${h(k)}" enterkeyhint="next" size="${Math.max(4, rep.split("|")[0].length)}" autocomplete="off" autocapitalize="off" spellcheck="false">`);
 			return `<div class="r-carte">${tete}${it.titre ? `<h3>${h(it.titre)}</h3>` : ""}<div class="r-trous" id="t-${h(k)}">${html}</div>
 				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}
-				<div class="r-actions"><button class="bouton petit-b" data-r-solution="${h(k)}">Voir les réponses</button></div>${src(it, ch)}</div>`;
+				<div class="r-actions"><button class="bouton petit-b" data-r-banque="${h(k)}">🔤 Banque de mots</button><button class="bouton petit-b" data-r-solution="${h(k)}">Voir les réponses</button></div>${banqueMots(ch, it, k)}${src(it, ch)}</div>`;
 		}
 		case "calcul":
-			return `<div class="r-carte">${tete}<div class="r-md">${md(it.enonce)}</div>${it.donnees ? `<div class="r-donnees">${md(it.donnees)}</div>` : ""}
-				<div class="r-rep"><input type="text" inputmode="decimal" enterkeyhint="done" id="c-${h(k)}" data-r-calc="${h(k)}" placeholder="Ta réponse, puis Entrée"><span>${h(it.reponse?.unite || "")}</span></div>
+			return `<div class="r-carte">${tete}<div class="r-md">${md(it.enonce)}</div>${figure(it)}${it.donnees ? `<div class="r-donnees">${md(it.donnees)}</div>` : ""}
+				${etapes(it, k)}
+				<div class="r-rep">${(it.etapes || []).length ? `<span class="petit">Résultat final</span>` : ""}<input type="text" inputmode="decimal" enterkeyhint="done" id="c-${h(k)}" data-r-calc="${h(k)}" placeholder="Ta valeur (ex. 63,7)"><span>${h(it.reponse?.unite || "")}</span>${clavierPlus(`c-${k}`)}<button class="bouton plein petit-b" data-r-verifier="${h(k)}">Vérifier</button></div>
 				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}
 				<div class="r-actions">${indices}</div>
 				<div class="r-actions">${boutonClaude(ch, it)}<button class="bouton petit-b" data-r-solution="${h(k)}">Solution</button></div>
@@ -278,13 +363,15 @@ ${src(it, ch)}</div>`;
 		case "resume":
 		case "memoire": {
 			const q = it.type === "principe" ? it.question : it.consigne;
+			const ph = it.type === "principe" ? "Explique avec tes mots, comme à un camarade…" : it.type === "resume" ? "Écris ton résumé, avec tes mots…" : "Écris tout ce dont tu te souviens…";
 			return `<div class="r-carte">${tete}<div class="r-md">${md(q)}</div>
 				${it.type === "memoire" ? `<p class="petit">Sans regarder le cours : écris tout ce dont tu te souviens, puis compare. <button class="bouton petit-b" data-r-chrono="${h(k)}">⏱ Lancer 5 min</button> <span id="ch-${h(k)}"></span></p>` : ""}
-				<textarea class="r-texte" id="x-${h(k)}" data-r-brouillon="${h(k)}" placeholder="${it.type === "principe" ? "Explique avec tes mots, comme à un camarade…" : "Écris ton résumé ici…"}">${h((R.brouillons || {})[k] || "")}</textarea>
-				<div class="r-actions">${indices}<button class="bouton plein" data-r-comparer="${h(k)}">Comparer aux points clés</button></div>
-				<div class="r-cache" id="v-${h(k)}" hidden></div>
+				${zoneEcriture(k, ph)}
+				${checklist(k, it.attendus, it.modele)}
+				${indices ? `<div class="r-actions">${indices}</div>` : ""}
 				<div class="r-actions">${zonePhoto(k)}<button class="bouton petit-b" data-r-envoyer="${h(k)}">📤 Envoyer pour validation</button><a class="bouton petit-b" href="#" data-r-claude-txt="${h(k)}">✦ Valider avec Claude</a></div>
 				${statutRendu(k)}
+				${it.aide ? blocAide(ch, it, k) : ""}
 				${src(it, ch)}</div>`;
 		}
 	}
@@ -299,7 +386,8 @@ function blocAide(ch, it, k, cache = true) {
 	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${glossaire(ch, it)}<p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>`;
 	const motsSeuls = (a.termes || []).filter(([t]) => !/^\$/.test(String(t)));
 	const termes = motsSeuls.length ? `<div class="r-aide-t">📖 Les mots à connaître</div><table class="r-vars">${motsSeuls.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
-	const corps = `${a.simple ? `<div class="r-aide-t">🧠 En mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
+	const corps = `${a.simple ? `<div class="r-aide-t">🧠 Le phénomène, en mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
+		${a.champ ? `<div class="r-aide-t">📍 Quand ça s'applique (et quand non)</div><div class="r-md">${md(a.champ)}</div>` : ""}
 		${a.piege ? `<div class="r-aide-t">⚠️ Piège fréquent</div><div class="r-md">${md(a.piege)}</div>` : ""}
 		${a.exemple ? `<div class="r-aide-t">🔧 Exemple concret</div><div class="r-md">${md(a.exemple)}</div>` : ""}
 		${termes}
@@ -391,11 +479,11 @@ function vuePartiel(p) {
 
 function vueChapitre(ch) {
 	const par = (t) => (ch.items || []).filter((it) => it.type === t);
-	const bloc = (titre, liste, mode = "liste") => (liste.length ? `<h2 class="section-titre r-sec">${titre}</h2><div class="grille">${liste.map((it) => carteItem(ch, it, mode)).join("")}</div>` : "");
-	const m = maitrise(ch), j = partielDe(ch);
+	const bloc = (titre, liste, mode = "liste") => (liste.length ? `<h2 class="section-titre r-sec">${titre}</h2><div class="grille">${liste.slice().sort((a, b) => niveauDe(a) - niveauDe(b)).map((it) => carteItem(ch, it, mode)).join("")}</div>` : "");
+	const m = maitrise(ch), j = partielDe(ch), na = niveauAutorise(ch);
 	return `<button class="bouton petit-b" data-r-retour>‹ Révisions</button>
 		<div class="carte r-entete" style="--c:${couleur(ch.ue)};margin-top:12px">
-			<div class="petit">${h(ch.ue)}${ch.matiere ? " / " + h(ch.matiere) : ""}${j != null ? ` · partiel J-${j}` : ""}</div>
+			<div class="petit">${h(ch.ue)}${ch.matiere ? " / " + h(ch.matiere) : ""}${j != null ? ` · partiel J-${j}` : ""} · niveau ${NIVEAUX[na]} ${na < 3 ? `(le niveau suivant s'ouvre à ${na === 1 ? 35 : 70} % de maîtrise)` : "(tout est ouvert)"}</div>
 			<h3 style="font:700 22px var(--titre);margin:4px 0 8px">${h(ch.titre)}</h3>
 			<div class="r-barre"><span style="width:${m}%"></span></div><div class="petit" style="margin-top:4px">Maîtrise ${m}%${(ch.sources || []).map((s) => s.url ? ` · <a href="${h(s.url)}" target="_blank" rel="noopener">${h(s.fichier)}</a>` : "").join("")}</div>
 			<div class="r-actions" style="margin-top:12px">
@@ -456,18 +544,29 @@ function repartition() {
 }
 // Tire `total` éléments en respectant les parts de chaque UE ; priorité aux éléments les moins maîtrisés
 function tirage(candidats, total) {
-	const parts = repartition(), boite = (x) => (S.data.progres[x.k] || {}).boite || 0;
+	const parts = repartition(), cache = {}, sc = new Map();
+	// score = maîtrise + niveau trop avancé (pénalité) + un peu de hasard pour varier les sessions
+	for (const x of candidats) sc.set(x, scoreItem(x, cache) + (Math.random() - 0.5) * 1.5);
 	const parUe = {};
 	for (const x of candidats) (parUe[x.ch.ue] ||= []).push(x);
-	for (const l of Object.values(parUe)) l.sort((a, b) => boite(a) - boite(b) + (Math.random() - 0.5) * 1.5);
+	for (const l of Object.values(parUe)) l.sort((a, b) => sc.get(a) - sc.get(b));
 	const choisis = [];
 	for (const [ue, f] of Object.entries(parts)) {
 		const l = parUe[ue] || [];
 		choisis.push(...l.splice(0, Math.round(f * total)));
 	}
-	const reste = Object.values(parUe).flat().sort((a, b) => boite(a) - boite(b));
-	while (choisis.length < total && reste.length) choisis.push(reste.shift());
-	return choisis.slice(0, total);
+	const reste = Object.values(parUe).flat().sort((a, b) => sc.get(a) - sc.get(b));
+	// une seule question par « famille » (même notion ou même équation) dans une session
+	const out = [], familles = new Set();
+	for (const x of [...choisis, ...reste]) {
+		if (out.length >= total) break;
+		if (out.includes(x)) continue;
+		const f = x.it.famille;
+		if (f && familles.has(f)) continue;
+		if (f) familles.add(f);
+		out.push(x);
+	}
+	return out;
 }
 function feuilleRepartition() {
 	const r = S.data.config.repartition || { mode: "auto", parts: {} };
@@ -521,7 +620,7 @@ function demarrerSession(type) {
 		if (mode === "cartes") { titre = "Cartes · " + p.titre; l = melanger(l.filter((x) => RECALL.includes(x.it.type))).sort((a, b) => boite(a) - boite(b)).slice(0, 30); }
 		else if (mode === "exos") { titre = "Exercices · " + p.titre; l = melanger(l.filter((x) => EXOS.includes(x.it.type))).slice(0, 20); }
 		else if (mode === "blanc") { titre = "Test blanc · " + p.titre; l = melanger(l.filter((x) => ["qcm", "trous", "calcul"].includes(x.it.type))).slice(0, 15); }
-		else { titre = p.titre; l = l.filter(travail).sort((a, b) => boite(a) - boite(b) + (Math.random() - 0.5) * 2).slice(0, 25); l = melanger(l); }
+		else { titre = p.titre; const cache = {}; l = l.filter(travail).sort((a, b) => scoreItem(a, cache) - scoreItem(b, cache) + (Math.random() - 0.5) * 2).slice(0, 25); l = melanger(l); }
 		liste = l;
 	} else if (type === "partiel") {
 		const prochains = partielsTous().filter((p) => jourCle(p.debut) >= now && p.matiere);
@@ -723,6 +822,33 @@ document.addEventListener("click", (e) => {
 	delete R.photos[b.dataset.rPhotoSuppr];
 	b.parentElement.innerHTML = "";
 });
+// Dictée, vérification au clavier numérique (pas de touche « Entrée » sur iOS), banque de mots
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-r-dicter]");
+	if (b) dicter(b.dataset.rDicter, b);
+});
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-r-verifier]");
+	if (b) corrigerCalcul(b.dataset.rVerifier);
+});
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-r-banque]");
+	if (!b) return;
+	const box = $(`#b-${CSS.escape(b.dataset.rBanque)}`);
+	if (box) box.hidden = !box.hidden;
+});
+document.addEventListener("click", (e) => {
+	const chip = e.target.closest("[data-r-chip]");
+	if (!chip || chip.disabled) return;
+	const champs = [...document.querySelectorAll(`#t-${CSS.escape(chip.dataset.rChip)} .r-trou`)];
+	const actif = document.activeElement;
+	const cible = champs.includes(actif) && !actif.classList.contains("bon") ? actif : champs.find((c) => !c.classList.contains("bon"));
+	if (!cible) return;
+	cible.value = chip.dataset.mot;
+	cible.dispatchEvent(new Event("input", { bubbles: true }));
+	if (!cible.classList.contains("bon")) corrigerTrou(cible);
+	if (cible.classList.contains("bon")) chip.disabled = true;
+});
 document.addEventListener("click", (e) => {
 	const b = e.target.closest("[data-r-score]");
 	if (!b) return;
@@ -731,6 +857,28 @@ document.addEventListener("click", (e) => {
 	const n = cases.filter((c) => c.checked).length, tot = cases.length || 1;
 	repondu(k, n / tot >= 0.9 ? 2 : n / tot >= 0.6 ? 1 : 0);
 	b.outerHTML = `<div class="r-msg ${n / tot >= 0.6 ? "ok" : "ko"}">${n}/${tot} points clés · ${n / tot >= 0.6 ? "bien joué" : "à retravailler, ça reviendra bientôt"}</div>`;
+});
+document.addEventListener("click", (e) => {
+	const t = e.target.closest("[data-r-touche]");
+	if (t) {
+		const c = document.getElementById(t.dataset.rTouche);
+		if (!c) return;
+		if (t.dataset.t === "-") c.value = /e$/i.test(c.value) ? c.value + "-" : c.value.startsWith("-") ? c.value.slice(1) : "-" + c.value;
+		else if (!/e/i.test(c.value)) c.value += "e";
+		c.focus();
+		return;
+	}
+	const v = e.target.closest("[data-r-etape-v]");
+	if (v) { corrigerEtape(v.dataset.rEtapeV, Number(v.dataset.i)); return; }
+	const ind = e.target.closest("[data-r-etape-ind]");
+	if (ind) {
+		const x = item(ind.dataset.rEtapeInd), et = x?.it.etapes[Number(ind.dataset.i)];
+		if (et) { const z = ind.parentElement; z.innerHTML = `💡 ${inline(h(et.indice))}`; formules(z); }
+	}
+});
+document.addEventListener("keydown", (e) => {
+	if (e.key !== "Enter" || !e.target.dataset?.rEtape) return;
+	e.preventDefault(); corrigerEtape(e.target.dataset.rEtape, Number(e.target.dataset.i));
 });
 let brouillonTimer;
 document.addEventListener("input", (e) => {
