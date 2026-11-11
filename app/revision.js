@@ -313,6 +313,15 @@ function corrigerEtape(k, i) {
 	if (ok) $(`#e-${CSS.escape(k)}-${i + 1}`)?.focus();
 }
 
+// Ordre des choix d'un QCM mélangé à chaque affichage (la bonne réponse n'est jamais toujours au même endroit).
+// Les choix du type « toutes les réponses » / « aucune » restent en dernier.
+function melangerChoix(it) {
+	const fin = (c) => /^(toutes|aucune|aucun|les deux|tous)\b/i.test(String(c).trim());
+	const idx = it.choix.map((_, i) => i), libres = idx.filter((i) => !fin(it.choix[i])), fixes = idx.filter((i) => fin(it.choix[i]));
+	for (let i = libres.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [libres[i], libres[j]] = [libres[j], libres[i]]; }
+	return [...libres, ...fixes];
+}
+
 // ---------- Rendu d'un élément ----------
 function carteItem(ch, it, mode = "liste") {
 	const k = cle(ch.id, it.id);
@@ -337,7 +346,7 @@ ${src(it, ch)}</div>`;
 		}
 		case "qcm":
 			return `<div class="r-carte">${tete}<div class="r-md">${md(it.question)}</div>${figure(it)}
-				<div class="r-choix">${it.choix.map((c, i) => `<button class="r-choix-b" data-r-qcm="${h(k)}" data-i="${i}">${String.fromCharCode(65 + i)}. ${inline(h(c))}</button>`).join("")}</div>
+				<div class="r-choix">${melangerChoix(it).map((i, pos) => `<button class="r-choix-b" data-r-qcm="${h(k)}" data-i="${i}">${String.fromCharCode(65 + pos)}. ${inline(h(it.choix[i]))}</button>`).join("")}</div>
 				<div class="r-retour" id="r-${h(k)}"></div>${blocAide(ch, it, k)}<div class="r-actions">${boutonClaude(ch, it)}</div></div>`;
 		case "trous": {
 			let n = 0;
@@ -741,7 +750,7 @@ document.addEventListener("click", (e) => {
 	}
 	if (d.rQcm) {
 		const i = Number(d.i), bon = i === it.bonne;
-		el.parentElement.querySelectorAll("button").forEach((b, j) => { b.disabled = true; if (j === it.bonne) b.classList.add("bon"); else if (j === i) b.classList.add("faux"); });
+		el.parentElement.querySelectorAll("button").forEach((b) => { const j = Number(b.dataset.i); b.disabled = true; if (j === it.bonne) b.classList.add("bon"); else if (j === i) b.classList.add("faux"); });
 		$(`#r-${CSS.escape(k)}`).innerHTML = `<div class="r-msg ${bon ? "ok" : "ko"}">${bon ? "✓ Bonne réponse" : "✗ Ce n'est pas ça"}</div>${it.explication ? `<div class="r-md">${md(it.explication)}</div>` : ""}`;
 		formules($(`#r-${CSS.escape(k)}`));
 		repondu(k, bon ? 1 : 0);
