@@ -25,6 +25,8 @@ async function chargerRevision() {
 	const progres = await lire("revision/progres.json", {});
 	const rendus = await lire("revision/rendus.json", []);
 	const signalements = await lire("revision/signalements.json", []).catch(() => []);
+	const lexique = await lire("revision/lexique.json", { termes: [] }).catch(() => ({ termes: [] }));
+	store.set("ae.lexique", lexique); LEX = null;
 	const chs = await Promise.all((idx.chapitres || []).map((c) => lire(`revision/chapitres/${c.id}.json`, null).catch(() => null)));
 	S.data.revision = { index: idx, rendus, signalements };
 	S.data.progres = fusionProgres(progres, store.get("ae.progres.local", {}));
@@ -432,9 +434,47 @@ function lienExplication(ch, it) {
 	const quoi = it.recto || it.terme || it.nom || it.question || it.titre || it.enonce || "";
 	return "https://claude.ai/new?q=" + encodeURIComponent(`Je suis étudiant à l'ENSAM et je révise « ${ch.titre} » (${ch.ue}). Explique-moi cet élément :\n${quoi}${it.formule ? "\nFormule : " + it.formule : ""}\n\n1) en mots simples (le phénomène physique), 2) avec un exemple concret, 3) le sens de chaque lettre ou terme avec son unité, 4) ce qui se passe quand on fait varier chaque paramètre (avec des chiffres). Appuie-toi sur un cours de mécanique de niveau ingénieur.`);
 }
+// ---------- Vocabulaire anglais (petit encadré après chaque résolution) ----------
+let LEX = null;
+const sansAccent = (t) => String(t).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[’']/g, "'").replace(/œ/g, "oe");
+function lexique() {
+	if (LEX) return LEX;
+	const termes = (store.get("ae.lexique", { termes: [] }).termes || []).filter(([fr, en]) => sansAccent(fr) !== sansAccent(en));
+	// chaque mot peut prendre un s/x final (pluriel) ; les plus longs d'abord pour éviter les chevauchements
+	LEX = termes.map(([fr, en]) => ({ fr, en, re: new RegExp(`(^|[^a-z0-9])${sansAccent(fr).split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[sx]?").join("[\\s-]+")}(?![a-z0-9])`) })).sort((a, b) => b.fr.length - a.fr.length);
+	return LEX;
+}
+function motsAnglais(ch, it) {
+	if (ch.ue === "LV1" || /^lv1-|toeic/i.test(ch.id)) return []; // déjà en anglais
+	if (Array.isArray(it.anglais) && it.anglais.length) return it.anglais.slice(0, 6);
+	const nettoie = (v) => sansAccent(String(v || "").replace(/\$[^$]*\$/g, " ").replace(/\*\*/g, ""));
+	const question = nettoie([it.recto, it.question, it.terme, it.nom, it.enonce, it.titre, it.consigne].filter(Boolean).join(" "));
+	const reponse = nettoie([it.verso, it.definition, it.explication, it.solution, it.quand, it.choix ? it.choix[it.bonne] : "", it.texte?.replace(/\[\[([^|\]]+)[^\]]*\]\]/g, "$1"), ...(it.attendus || [])].filter(Boolean).join(" "));
+	const pris = [], couvert = [];
+	for (const zone of [question, reponse]) {
+		let txt = zone;
+		for (const t of lexique()) {
+			if (pris.length >= 5) break;
+			if (pris.some((p) => p.fr === t.fr)) continue;
+			const m = txt.match(t.re);
+			if (!m) continue;
+			if (couvert.some((c) => sansAccent(c).includes(sansAccent(t.fr)))) continue;
+			pris.push(t); couvert.push(t.fr);
+			txt = txt.replace(t.re, "$1 ");
+		}
+	}
+	// pas « ajustement » si « ajustement avec jeu » est déjà là
+	return pris.filter((t) => !pris.some((u) => u !== t && sansAccent(u.fr).includes(sansAccent(t.fr)))).map((t) => [t.fr, t.en]);
+}
+function encadreAnglais(ch, it, k, cache) {
+	const mots = motsAnglais(ch, it);
+	if (!mots.length) return "";
+	return `<div class="r-en" id="en-${h(k)}" ${cache ? "hidden" : ""}><span class="r-en-t">🇬🇧 In English</span>${mots.map(([fr, en]) => `<span class="r-en-m"><span class="petit">${h(fr)}</span> <b>${h(en)}</b></span>`).join("")}</div>`;
+}
+
 function blocAide(ch, it, k, cache = true) {
 	const a = it.aide;
-	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${glossaire(ch, it)}<p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>`;
+	if (!a) return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${glossaire(ch, it)}<p class="petit">L'explication détaillée de cet élément arrive bientôt (ajoutée chaque nuit, chapitres des prochains partiels en premier).</p><a class="bouton petit-b r-claude" href="${h(lienExplication(ch, it))}" target="_blank" rel="noopener">✦ Me l'expliquer avec Claude</a></details>${encadreAnglais(ch, it, k, cache)}`;
 	const motsSeuls = (a.termes || []).filter(([t]) => !/^\$/.test(String(t)));
 	const termes = motsSeuls.length ? `<div class="r-aide-t">📖 Les mots à connaître</div><table class="r-vars">${motsSeuls.map(([t, sens]) => `<tr><td>${inline(h(t))}</td><td>${inline(h(sens))}</td></tr>`).join("")}</table>` : "";
 	const corps = `${a.simple ? `<div class="r-aide-t">🧠 Le phénomène, en mots simples</div><div class="r-md">${md(a.simple)}</div>` : ""}
@@ -444,11 +484,12 @@ function blocAide(ch, it, k, cache = true) {
 		${termes}
 		${a.variation ? `<div class="r-aide-t">📈 Et si on fait varier…</div><div class="r-md">${md(a.variation)}</div>` : ""}
 		${glossaire(ch, it)}`;
-	return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${corps}</details>`;
+	return `<details class="r-aide" id="a-${h(k)}" ${cache ? "hidden" : ""}><summary>💡 Comprendre</summary>${corps}</details>${encadreAnglais(ch, it, k, cache)}`;
 }
 function montrerAide(k) {
 	const a = $(`#a-${CSS.escape(k)}`);
 	if (a) { a.hidden = false; if (R.session) a.open = true; formules(a); }
+	const en = $(`#en-${CSS.escape(k)}`); if (en) en.hidden = false;
 }
 function statutRendu(k) {
 	const rendu = (S.data.revision.rendus || []).filter((r) => r.cle === k).sort((a, b) => b.date.localeCompare(a.date))[0];

@@ -310,3 +310,7 @@ button.lien { background: none; border: 0; color: var(--accent, #c0572f); text-d
 .avert-txt { background: var(--avert-doux); color: var(--avert); padding: 10px 12px; border-radius: 12px; }
 .etapes-simples { padding-left: 20px; line-height: 1.6; }
 .notes-tete ~ section.carte, .notes-tete ~ .avert-txt { margin-top: 14px; }
+/* Vocabulaire anglais */
+.r-en { margin-top: 10px; padding: 8px 10px; border-radius: 12px; background: var(--fond-2); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 14px; }
+.r-en-t { font: 600 11px var(--titre); letter-spacing: .05em; text-transform: uppercase; color: var(--doux); width: 100%; }
+.r-en-m b { font-weight: 600; }
