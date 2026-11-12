@@ -314,3 +314,16 @@ button.lien { background: none; border: 0; color: var(--accent, #c0572f); text-d
 .r-en { margin-top: 10px; padding: 8px 10px; border-radius: 12px; background: var(--fond-2); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 14px; }
 .r-en-t { font: 600 11px var(--titre); letter-spacing: .05em; text-transform: uppercase; color: var(--doux); width: 100%; }
 .r-en-m b { font-weight: 600; }
+/* Notes : coefficients et textes longs */
+.note-nom, .note-ue-nom, .note-com, .note-info .petit { overflow-wrap: anywhere; word-break: break-word; hyphens: auto; }
+.note-ue { gap: 10px; }
+.note-ue-nom { min-width: 0; }
+.notes-tete-d { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right; }
+.coef-champ { display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--doux); flex: none; }
+.coef-champ input { width: 56px; padding: 6px 4px; text-align: center; font-size: 16px; border: 1px solid var(--ligne); border-radius: 10px; background: var(--fond-2); color: var(--texte); }
+.note-l.exclue .note-val, .note-l.exclue .note-nom { opacity: .45; }
+.note-ue.exclue { opacity: .6; }
+.aide-coefs { margin: 0 4px 12px; }
+/* Aucun texte ne doit dépasser, même un mot très long (codes Lise, titres en un mot) */
+.carte, .carte h2, .carte h3, .sheet, #titre, .tache-titre { overflow-wrap: anywhere; min-width: 0; }
+.katex, .katex * { overflow-wrap: normal; }

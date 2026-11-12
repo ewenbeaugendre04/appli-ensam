@@ -119,10 +119,10 @@ const sauverCache = () => store.set("ae.cache", S.data);
 async function charger() {
 	if (!S.token) return;
 	try {
-		const [config, tasks, partiels, events, notes] = await Promise.all([
-			lire("config.json", {}), lire("tasks.json", []), lire("partiels.json", []), lire("events.json", { events: [] }), lire("notes.json", null).catch(() => null),
+		const [config, tasks, partiels, events, notes, coefs] = await Promise.all([
+			lire("config.json", {}), lire("tasks.json", []), lire("partiels.json", []), lire("events.json", { events: [] }), lire("notes.json", null).catch(() => null), lire("coefficients.json", { notes: {}, ues: {} }).catch(() => ({ notes: {}, ues: {} })),
 		]);
-		S.data = { ...S.data, config, tasks, partiels, events, notes };
+		S.data = { ...S.data, config, tasks, partiels, events, notes, coefs };
 		S.horsLigne = false;
 		await chargerRevision().catch(() => {});
 		sauverCache();
@@ -293,6 +293,21 @@ function feuilleReattribuer(t) {
 }
 
 // ---------- Notes ----------
+document.addEventListener("click", (e) => {
+	const b = e.target.closest("[data-coefs]");
+	if (!b) return;
+	if (b.dataset.coefs === "edit") { S.notesEdition = true; rendre(); return; }
+	const C = { notes: { ...(S.data.coefs?.notes || {}) }, ues: { ...(S.data.coefs?.ues || {}) } };
+	document.querySelectorAll("[data-coef-type]").forEach((i) => {
+		const v = parseFloat(String(i.value).replace(",", "."));
+		const t = i.dataset.coefType, k = i.dataset.coefCle;
+		if (isNaN(v) || v < 0 || v === 1) delete C[t][k]; else C[t][k] = v;
+	});
+	S.notesEdition = false;
+	S.data.coefs = C;
+	rendre();
+	action(() => modifier("coefficients.json", "coefs", () => C, "Coefficients des notes", { defaut: { notes: {}, ues: {} }, sansSynchro: true }));
+});
 // « Nouveau » = arrivée depuis ta dernière visite de la page (rien de nouveau tant que tu ne l'as jamais ouverte)
 const notesNouvelles = () => { const v = store.get("ae.notesVues", ""); return v ? (S.data.notes?.notes || []).filter((x) => x.ajouteLe > v) : []; };
 // UE d'une note à partir de son code Lise (ex. FITE_S7_MATA_DS1 → MATI si « MAT » correspond)
@@ -350,21 +365,33 @@ const VUES = {
 			<p class="petit">Tes notes apparaîtront ici à la synchro suivante (moins d'une heure). Si tu changes ton mot de passe Lise, mets aussi à jour ce secret.</p></section>`;
 		}
 		const vues = store.get("ae.notesVues", "") || "9999";
+		const edit = !!S.notesEdition;
+		const C = S.data.coefs || { notes: {}, ues: {} };
+		const coefNote = (x) => C.notes?.[x.code] ?? 1;
+		const coefUe = (g) => C.ues?.[g] ?? 1;
 		const groupes = new Map();
 		for (const x of n.notes) { const g = ueDeNote(x); if (!groupes.has(g)) groupes.set(g, []); groupes.get(g).push(x); }
-		const moy = (l) => { const v = l.map((x) => x.note).filter((x) => typeof x === "number"); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+		// moyenne pondérée : Σ note × coef / Σ coef (coef 0 = ne compte pas)
+		const moyUe = (l) => { let s = 0, c = 0; for (const x of l) if (typeof x.note === "number" && coefNote(x) > 0) { s += x.note * coefNote(x); c += coefNote(x); } return c ? s / c : null; };
+		let sg = 0, cg = 0;
+		for (const [g, l] of groupes) { const m = moyUe(l); if (m != null && coefUe(g) > 0) { sg += m * coefUe(g); cg += coefUe(g); } }
+		const total = cg ? sg / cg : null;
+		const nbComptees = n.notes.filter((x) => typeof x.note === "number" && coefNote(x) > 0 && coefUe(ueDeNote(x)) > 0).length;
+		const perso = Object.keys(C.notes || {}).length + Object.keys(C.ues || {}).length > 0;
 		const fmtN = (v) => (v == null ? "–" : v.toLocaleString("fr-FR", { maximumFractionDigits: 2 }));
 		const dateTri = (d) => d.split("/").reverse().join("");
-		const ligne = (x) => `<div class="note-l${x.ajouteLe > vues ? " nouvelle" : ""}"><div class="note-info"><div class="note-nom">${h(x.libelle)}${x.ajouteLe > vues ? ' <span class="badge-nouv">Nouveau</span>' : ""}</div>
-			<div class="petit">${h(x.date)}${x.enseignants ? " · " + h(x.enseignants) : ""}${x.absence && x.absence !== "Non" ? " · absence : " + h(x.absence) : ""}</div>${x.commentaire ? `<div class="petit note-com">« ${h(x.commentaire)} »</div>` : ""}</div>
-			<div class="note-val ${typeof x.note === "number" ? (x.note >= 10 ? "ok" : "ko") : ""}">${typeof x.note === "number" ? fmtN(x.note) : h(x.brut || "–")}</div></div>`;
-		const total = moy(n.notes);
+		const champ = (type, cle, val) => `<label class="coef-champ"><span>coef</span><input type="number" inputmode="decimal" min="0" step="0.5" value="${h(val)}" data-coef-type="${type}" data-coef-cle="${h(cle)}"></label>`;
+		const ligne = (x) => `<div class="note-l${x.ajouteLe > vues ? " nouvelle" : ""}${coefNote(x) === 0 ? " exclue" : ""}"><div class="note-info"><div class="note-nom">${h(x.libelle)}${x.ajouteLe > vues ? ' <span class="badge-nouv">Nouveau</span>' : ""}</div>
+			<div class="petit">${h(x.date)}${x.enseignants ? " · " + h(x.enseignants) : ""}${x.absence && x.absence !== "Non" ? " · absence : " + h(x.absence) : ""}${!edit && coefNote(x) !== 1 ? ` · coef ${fmtN(coefNote(x))}` : ""}</div>${x.commentaire ? `<div class="petit note-com">« ${h(x.commentaire)} »</div>` : ""}</div>
+			${edit ? champ("notes", x.code, coefNote(x)) : ""}<div class="note-val ${typeof x.note === "number" ? (x.note >= 10 ? "ok" : "ko") : ""}">${typeof x.note === "number" ? fmtN(x.note) : h(x.brut || "–")}</div></div>`;
 		setTimeout(() => store.set("ae.notesVues", new Date().toISOString()), 1500);
-		return `<section class="carte notes-tete"><div><div class="petit">Moyenne simple de tes ${n.notes.filter((x) => typeof x.note === "number").length} notes</div><div class="notes-moy ${total >= 10 ? "ok" : "ko"}">${fmtN(total)}<span>/20</span></div></div>
-			<div class="petit">Sans coefficients : indicatif.<br>${n.majLe ? "Dernier changement " + h(fmt(n.majLe, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : ""}</div></section>
+		return `<section class="carte notes-tete"><div><div class="petit">Moyenne ${perso ? "pondérée" : "simple"} · ${nbComptees} note${nbComptees > 1 ? "s" : ""}</div><div class="notes-moy ${total >= 10 ? "ok" : "ko"}">${fmtN(total)}<span>/20</span></div></div>
+			<div class="notes-tete-d"><button class="bouton ${edit ? "plein" : ""} petit-b" data-coefs="${edit ? "ok" : "edit"}">${edit ? "✓ Enregistrer" : "⚖️ Coefficients"}</button>
+			<div class="petit">${perso ? "Avec tes coefficients." : "Sans coefficients : indicatif."}${n.majLe ? "<br>Dernier changement " + h(fmt(n.majLe, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : ""}</div></div></section>
+		${edit ? `<p class="aide-coefs petit">Mets le coefficient de chaque note, et celui de chaque UE (crédits ECTS par exemple). <b>0</b> = ne compte pas dans la moyenne (ex. notes de concours). La moyenne de l'UE pondère ses notes, la moyenne générale pondère les UE.</p>` : ""}
 		${n.etat && !n.etat.ok ? `<p class="avert-txt">Synchro des notes en échec : ${h(n.etat.message)}</p>` : ""}
-		${[...groupes].sort((a, b) => a[0].localeCompare(b[0])).map(([g, l]) => `<section class="carte"><h2 style="--c:${couleur(g)}" class="note-ue"><span>${h(g)}${ues().find((u) => u.code === g) ? ` · ${h(ues().find((u) => u.code === g).nom)}` : ""}</span><span class="petit">moy. ${fmtN(moy(l))}</span></h2>
-			${l.sort((a, b) => dateTri(b.date).localeCompare(dateTri(a.date))).map(ligne).join("")}</section>`).join("")}`;
+		${[...groupes].sort((a, b) => a[0].localeCompare(b[0])).map(([g, l]) => { const nomUe = ues().find((u) => u.code === g)?.nom; return `<section class="carte"><h2 style="--c:${couleur(g)}" class="note-ue${coefUe(g) === 0 ? " exclue" : ""}"><span class="note-ue-nom">${h(g)}${nomUe ? ` · ${h(nomUe)}` : ""}</span>${edit ? champ("ues", g, coefUe(g)) : `<span class="petit">moy. ${fmtN(moyUe(l))}${coefUe(g) !== 1 ? ` · coef ${fmtN(coefUe(g))}` : ""}</span>`}</h2>
+			${l.sort((a, b) => dateTri(b.date).localeCompare(dateTri(a.date))).map(ligne).join("")}</section>`; }).join("")}`;
 	},
 
 	agenda() {
