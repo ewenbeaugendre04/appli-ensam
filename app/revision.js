@@ -285,10 +285,13 @@ function niveauAutorise(ch) {
 	return m >= 70 ? 3 : m >= 35 ? 2 : 1;
 }
 // Score de tri : plus il est petit, plus l'élément passe en premier (peu maîtrisé, niveau accessible)
+// Priorité à la compréhension : formules, phénomènes, exercices (surtout ceux du cours et des TD) avant le par-cœur
+const POIDS_TYPE = { calcul: -1.5, equation: -1.2, principe: -1.2, qcm: -0.4, trous: 0, resume: 0.3, memoire: 0.3, flash: 0.7, definition: 0.9, fiche: 1.5 };
+const estComprendre = (it) => ["calcul", "equation", "principe"].includes(it.type) || !!it.td || !!it.phenomene;
 function scoreItem(x, cache = {}) {
 	if (!(x.ch.id in cache)) cache[x.ch.id] = niveauAutorise(x.ch);
 	const boite = (S.data.progres[x.k] || {}).boite || 0;
-	return boite + (niveauDe(x.it) <= cache[x.ch.id] ? 0 : 10);
+	return boite + (niveauDe(x.it) <= cache[x.ch.id] ? 0 : 10) + (POIDS_TYPE[x.it.type] ?? 0) + (x.it.td ? -1 : 0) + (x.it.phenomene ? -0.8 : 0);
 }
 // Zone de réponse écrite : grande, avec dictée quand le navigateur la permet (sinon le micro du clavier iOS)
 function zoneEcriture(k, placeholder) {
@@ -369,7 +372,7 @@ function melangerChoix(it) {
 function carteItem(ch, it, mode = "liste") {
 	const k = cle(ch.id, it.id);
 	const deja = (S.data.revision?.signalements || []).some((x) => x.cle === k && x.statut === "en_attente");
-	const tete = `<div class="r-tete"><div class="r-type" style="--c:${couleur(ch.ue)}">${TYPES[it.type] || it.type} · <span class="r-niv">${NIVEAUX[niveauDe(it)]}</span></div>${it.type === "fiche" ? "" : deja ? `<span class="r-signale">✓ Signalé</span>` : `<button type="button" class="r-signaler" data-r-signaler="${h(k)}" aria-label="Signaler un problème sur cette question">?</button>`}</div>`;
+	const tete = `<div class="r-tete"><div class="r-type" style="--c:${couleur(ch.ue)}">${TYPES[it.type] || it.type} · <span class="r-niv">${NIVEAUX[niveauDe(it)]}</span>${it.td ? ` · <span class="r-badge-td">${h(it.td)}</span>` : it.phenomene ? ' · <span class="r-badge-td">🔬 phénomène</span>' : ""}</div>${it.type === "fiche" ? "" : deja ? `<span class="r-signale">✓ Signalé</span>` : `<button type="button" class="r-signaler" data-r-signaler="${h(k)}" aria-label="Signaler un problème sur cette question">?</button>`}</div>`;
 	const indices = (it.indices || []).length ? `<button class="bouton petit-b" data-r-indice="${h(k)}">💡 Indice</button><div class="r-indices" id="ind-${h(k)}"></div>` : "";
 	switch (it.type) {
 		case "fiche":
@@ -488,7 +491,7 @@ function blocAide(ch, it, k, cache = true) {
 }
 function montrerAide(k) {
 	const a = $(`#a-${CSS.escape(k)}`);
-	if (a) { a.hidden = false; if (R.session) a.open = true; formules(a); }
+	if (a) { a.hidden = false; a.open = true; formules(a); }
 	const en = $(`#en-${CSS.escape(k)}`); if (en) en.hidden = false;
 }
 function statutRendu(k) {
@@ -525,6 +528,7 @@ function vueReviser() {
 				<div class="nom">${dus.length ? `${Math.min(25, dus.length)} à revoir aujourd'hui` : "Tout est à jour 🎉"}</div>
 				<div class="info">${dus.length ? `Session de 25 max (${dus.length} en attente au total). Ce que tu oublies revient plus souvent.` : "Lance une session mélangée pour t'entraîner."}</div>
 			</div>
+			<div class="rang"><button class="bouton large" data-r-session="comprendre">🔬 Comprendre : phénomènes, formules, TD</button></div>
 			<div class="rang"><button class="bouton large" data-r-session="melange">🔀 Session mélangée</button><button class="bouton large" data-r-prochain-partiel>🎯 Prochain partiel</button></div>
 			<button class="bouton large" data-r-repartition>⚖️ Répartition des matières : ${S.data.config.repartition?.mode === "manuel" ? "personnalisée" : "automatique"}</button>
 			${(() => { const ps = partielsTous().filter((p) => jourCle(p.debut) >= auj()); return ps.length ? `<section class="carte"><h2>Mes partiels</h2>${ps.map((p) => { const n = joursEntre(auj(), jourCle(p.debut)), pr = preparation(chapitresPartiel(p)); return `<div class="ligne cliquable" data-partiel-voir="${h(p.id)}"><div class="compte ${n <= 7 ? "proche" : ""}"><b>${n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div><div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${h(p.matiere || "matière à préciser")}${p.description ? " · 📋 attendus" : ""}</div><div class="r-barre"><span style="width:${pr}%"></span></div></div><div class="petit">${pr}%</div></div>`; }).join("")}</section>` : ""; })()}
@@ -699,6 +703,9 @@ function demarrerSession(type) {
 		titre = "À revoir";
 		const dus = tousItems().filter((x) => travail(x) && estDu(x.k));
 		liste = melanger(tirage(dus, Math.min(25, dus.length)));
+	} else if (type === "comprendre") {
+		titre = "Comprendre";
+		liste = melanger(tirage(tousItems().filter((x) => estComprendre(x.it)), 15));
 	} else if (type === "melange") {
 		titre = "Session mélangée";
 		liste = melanger(tirage(tousItems().filter(travail), 20));

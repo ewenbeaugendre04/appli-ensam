@@ -327,3 +327,9 @@ button.lien { background: none; border: 0; color: var(--accent, #c0572f); text-d
 /* Aucun texte ne doit dépasser, même un mot très long (codes Lise, titres en un mot) */
 .carte, .carte h2, .carte h3, .sheet, #titre, .tache-titre { overflow-wrap: anywhere; min-width: 0; }
 .katex, .katex * { overflow-wrap: normal; }
+.r-badge-td { background: var(--accent-doux); color: var(--accent); border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; }
+/* Ligne de réponse chiffrée : jamais écrasée */
+.r-rep { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.r-rep > .petit { width: 100%; }
+.r-rep input { flex: 1 1 110px; min-width: 110px; }
+.r-rep .bouton, .r-touche { white-space: nowrap; }
