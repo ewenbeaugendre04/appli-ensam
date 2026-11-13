@@ -117,7 +117,7 @@ function pyAjuster() {
 document.addEventListener("scroll", (ev) => { if (ev.target.id === "py-code") { const p = document.getElementById("py-hl")?.parentElement; if (p) { p.scrollLeft = ev.target.scrollLeft; p.scrollTop = ev.target.scrollTop; } } }, true);
 new MutationObserver(() => { const ta = document.getElementById("py-code"); if (ta && !ta.dataset.ajuste) { ta.dataset.ajuste = "1"; pyAjuster(); } }).observe(document.documentElement, { childList: true, subtree: true });
 
-const PY_TOUCHES = [["⇥", "    "], [":", ":"], ["(", "("], [")", ")"], ["[", "["], ["]", "]"], ["=", "="], ["'", "'"], ['"', '"'], ["_", "_"], [",", ","], [".", "."], ["#", "# "], ["*", "*"], ["/", "/"], ["_F(", "_F("]];
+const PY_TOUCHES = [["⇥", "    "], [":", ":"], ["(", "("], [")", ")"], ["[", "["], ["]", "]"], ["{", "{"], ["}", "}"], ["=", "="], ["'", "'"], ['"', '"'], ["_", "_"], [",", ","], [".", "."], ["#", "# "], ["*", "*"], ["/", "/"], ["_F(", "_F("]];
 
 function vuePyExercice(e) {
 	const code = PY.code[e.id] ?? e.depart;
