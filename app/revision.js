@@ -156,7 +156,13 @@ function md(t = "") {
 	}
 	return html + (liste ? "</ul>" : "");
 }
-const inline = (s) => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<i>$2</i>");
+const inline = (s) => {
+	// `code` d'abord (son contenu n'est pas interprété : a**2 reste a**2)
+	const codes = [];
+	s = s.replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+	s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<i>$2</i>");
+	return s.replace(/\u0000(\d+)\u0000/g, (m, i) => `<code class="ic">${codes[i]}</code>`);
+};
 function formules(el) {
 	if (!el || !window.renderMathInElement) return;
 	try {
@@ -514,6 +520,7 @@ function vueReviser() {
 	R.notes = {};
 	if (R.session) return vueSession();
 	if (R.partiel) { const p = trouverPartiel(R.partiel); if (p) return vuePartiel(p); R.partiel = null; }
+	if (R.ouvert === "__python") return vuePython();
 	if (R.ouvert && R.chap[R.ouvert]) return vueChapitre(R.chap[R.ouvert]);
 	const chs = Object.values(R.chap).filter((c) => !c.partiel);
 	if (!chs.length) return `<section class="carte"><h2>Révisions</h2><p class="vide">Aucun chapitre pour l'instant. Les contenus sont générés à partir de tes cours GoodNotes.</p></section>`;
@@ -530,6 +537,7 @@ function vueReviser() {
 			</div>
 			<div class="rang"><button class="bouton large" data-r-session="comprendre">🔬 Comprendre : phénomènes, formules, TD</button></div>
 			<div class="rang"><button class="bouton large" data-r-session="melange">🔀 Session mélangée</button><button class="bouton large" data-r-prochain-partiel>🎯 Prochain partiel</button></div>
+			<div class="ligne cliquable py-entree" data-py-module><div class="py-logo">🐍</div><div class="corps"><div class="t">Python · Salome-Meca &amp; Code_Aster</div><div class="s">Exercices en direct, corrigés, avec résultats et graphiques</div></div><div class="petit">›</div></div>
 			<button class="bouton large" data-r-repartition>⚖️ Répartition des matières : ${S.data.config.repartition?.mode === "manuel" ? "personnalisée" : "automatique"}</button>
 			${(() => { const ps = partielsTous().filter((p) => jourCle(p.debut) >= auj()); return ps.length ? `<section class="carte"><h2>Mes partiels</h2>${ps.map((p) => { const n = joursEntre(auj(), jourCle(p.debut)), pr = preparation(chapitresPartiel(p)); return `<div class="ligne cliquable" data-partiel-voir="${h(p.id)}"><div class="compte ${n <= 7 ? "proche" : ""}"><b>${n === 0 ? "Auj." : "J-" + n}</b><small>${fmt(p.debut, { day: "numeric", month: "short" })}</small></div><div class="corps"><div class="t">${h(p.titre)}</div><div class="s">${h(p.matiere || "matière à préciser")}${p.description ? " · 📋 attendus" : ""}</div><div class="r-barre"><span style="width:${pr}%"></span></div></div><div class="petit">${pr}%</div></div>`; }).join("")}</section>` : ""; })()}
 			${rendus.length ? `<section class="carte"><h2>Mes rendus</h2>${rendus.slice(0, 5).map((r) => { const x = item(r.cle); return `<div class="ligne cliquable" data-r-ouvrir="${h(r.cle.split(":")[0])}"><div class="corps"><div class="t">${h(x?.it ? TYPES[x.it.type] + " · " + (x.ch.titre) : r.cle)}</div><div class="s">${r.statut === "en_attente" ? "⏳ En attente de validation" : r.statut === "valide" ? "✅ Validé" : "✏️ À retravailler"}${r.note != null ? ` · ${h(r.note)}/10` : ""}</div></div></div>`; }).join("")}</section>` : ""}
