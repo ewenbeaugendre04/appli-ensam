@@ -174,7 +174,7 @@ function pyAfficher(res, e, verif) {
 }
 
 // Progrès : { le, compris: "oui" | "moyen" | "non" | null }
-const pyEtat = (id) => { const f = PY.fait?.[id]; return !f ? null : typeof f === "string" ? { le: f, compris: "oui" } : f; };
+const pyEtat = (id) => { const f = PY.fait?.[id]; return !f ? null : typeof f === "string" ? { le: f, compris: null } : f; }; // réussis avant le bouton « compris » : à confirmer
 const pyAcquis = (id) => pyEtat(id)?.compris === "oui";
 function pySauver(id, msg) {
 	store.set("ae.pyFait", PY.fait);
