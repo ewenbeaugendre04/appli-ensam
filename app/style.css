@@ -338,17 +338,40 @@ button.lien { background: none; border: 0; color: var(--accent, #c0572f); text-d
 .py-logo { font-size: 26px; width: 40px; text-align: center; }
 .py-tete p { margin: 6px 0 10px; }
 .py-titre { margin: 4px 0 8px; font-size: 20px; text-transform: none; letter-spacing: 0; color: var(--texte); }
-.py-editeur-zone { margin-top: 12px; border: 1px solid var(--ligne); border-radius: 14px; overflow: hidden; background: #1e1f24; }
-.py-touches { display: flex; gap: 4px; padding: 6px; overflow-x: auto; background: #2a2b31; -webkit-overflow-scrolling: touch; }
-.py-touche { flex: none; min-width: 34px; height: 34px; padding: 0 8px; border-radius: 8px; border: 0; background: #3a3b42; color: #e9e9ee; font: 600 15px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.py-touche:active { background: #55565f; }
-.py-code { display: block; width: 100%; min-height: 260px; border: 0; outline: none; resize: vertical; padding: 12px; background: #1e1f24; color: #e9e9ee; caret-color: #ffd166;
-  font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 4; white-space: pre; overflow: auto; border-radius: 0; }
+/* Éditeur de code : couleurs adaptées au thème clair et sombre */
+:root { --code-fond: #fbfaf8; --code-barre: #efebe5; --code-touche: #ffffff; --code-texte: #1f2328; --code-curseur: #8a1c2c;
+  --tk-k: #a31a3a; --tk-s: #0a5c36; --tk-n: #0550ae; --tk-c: #6e7781; --tk-f: #6639ba; --tk-b: #0b6a8a; --tk-a: #9a4a00; }
+@media (prefers-color-scheme: dark) {
+  :root { --code-fond: #1b1c21; --code-barre: #26272e; --code-touche: #34353d; --code-texte: #e6e6ea; --code-curseur: #ffd166;
+    --tk-k: #ff8fa3; --tk-s: #9be29b; --tk-n: #8ec5ff; --tk-c: #9aa0aa; --tk-f: #d6b4ff; --tk-b: #7fd4f0; --tk-a: #ffb86b; }
+}
+.py-editeur-zone { margin-top: 12px; border: 1px solid var(--ligne); border-radius: 14px; overflow: hidden; background: var(--code-fond); }
+.py-touches { display: flex; gap: 5px; padding: 6px; overflow-x: auto; background: var(--code-barre); -webkit-overflow-scrolling: touch; border-bottom: 1px solid var(--ligne); }
+.py-touche { flex: none; min-width: 36px; height: 36px; padding: 0 9px; border-radius: 9px; border: 1px solid var(--ligne); background: var(--code-touche); color: var(--code-texte); font: 600 15px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.py-touche:active { background: var(--accent-doux); }
+.py-ed { position: relative; }
+.py-ed .py-hl, .py-ed textarea.py-code { margin: 0; padding: 12px 14px; border: 0; box-sizing: border-box; font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0; tab-size: 4; white-space: pre; word-wrap: normal; }
+.py-ed .py-hl { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--code-texte); background: transparent; }
+.py-ed .py-hl code { font: inherit; }
+.py-ed textarea.py-code, .py-ed textarea.py-code:focus { position: relative; display: block; width: 100%; min-height: 240px; resize: none; overflow: auto hidden; outline: none; border-radius: 0;
+  background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--code-curseur); -webkit-appearance: none; appearance: none; }
+.py-ed textarea.py-code::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+@media (max-width: 600px) { .py-ed .py-hl, .py-ed textarea.py-code { font-size: 16px; } } /* 16 px : pas de zoom automatique sur iPhone */
+.tk-k { color: var(--tk-k); font-weight: 600; } .tk-s { color: var(--tk-s); } .tk-n { color: var(--tk-n); } .tk-c { color: var(--tk-c); font-style: italic; }
+.tk-f { color: var(--tk-f); } .tk-b { color: var(--tk-b); } .tk-a { color: var(--tk-a); font-weight: 600; }
+.py-cours { margin: 10px 0; border: 1px solid var(--ligne); border-left: 4px solid var(--ok); border-radius: 12px; padding: 8px 12px; background: color-mix(in srgb, var(--ok) 5%, var(--carte)); }
+.py-cours > summary { font-weight: 700; cursor: pointer; }
+.py-cours pre, .py-expl pre { margin: 6px 0; }
+.py-consigne { margin-top: 10px; }
+.py-compris { margin-top: 14px; padding: 12px; border-radius: 14px; background: var(--fond-2); }
+.py-compris .rang { flex-wrap: wrap; }
+.py-compris .bouton { flex: 1 1 auto; }
+.py-ok-msg { color: var(--ok); font-weight: 600; margin: 0; }
 .py-actions { margin-top: 10px; flex-wrap: wrap; }
 .py-actions .bouton { flex: 1 1 auto; }
 .py-sortie { margin-top: 12px; }
 .py-bloc-t { font: 600 12px var(--titre); text-transform: uppercase; letter-spacing: .05em; color: var(--doux); margin: 12px 0 4px; }
-.py-console { background: var(--fond-2); border-radius: 12px; padding: 10px 12px; font: 13px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; max-height: 340px; overflow: auto; }
+.py-console { color: var(--code-texte); background: var(--code-fond); border: 1px solid var(--ligne); border-radius: 12px; padding: 10px 12px; font: 13px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; max-height: 340px; overflow: auto; }
 .py-err { margin-top: 10px; border-left: 4px solid var(--alerte); background: color-mix(in srgb, var(--alerte) 8%, transparent); border-radius: 10px; padding: 8px 12px; }
 .py-err pre { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px ui-monospace, Menlo, monospace; }
 .py-img { display: block; max-width: 100%; margin: 10px auto; border-radius: 10px; background: #fff; }

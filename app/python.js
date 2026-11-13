@@ -67,17 +67,55 @@ function vuePython() {
 	if (R.pyEx && pyEx(R.pyEx)) return vuePyExercice(pyEx(R.pyEx));
 	const themes = {};
 	for (const e of PY.exos) (themes[e.theme] ||= []).push(e);
-	const nbFait = PY.exos.filter((e) => PY.fait[e.id]).length;
-	const suivant = PY.exos.find((e) => !PY.fait[e.id]);
+	const nbFait = PY.exos.filter((e) => pyAcquis(e.id)).length;
+	const aRevoir = PY.exos.filter((e) => pyEtat(e.id) && !pyAcquis(e.id));
+	const suivant = PY.exos.find((e) => !pyEtat(e.id));
 	return `<button class="bouton petit-b" data-r-retour>‹ Révisions</button>
 	<section class="carte py-tete"><h2>🐍 Python pour Salome-Meca et Code_Aster</h2>
 		<p>Exerce-toi en direct : tu écris le code, tu l'exécutes, il est corrigé tout de suite, avec les résultats et les graphiques. Code_Aster et Salome sont <b>simulés</b> : mêmes commandes et mots-clés que les vrais, mêmes erreurs typiques, mais des résultats analytiques au lieu d'un vrai calcul éléments finis.</p>
 		<div class="r-barre"><span style="width:${PY.exos.length ? Math.round((100 * nbFait) / PY.exos.length) : 0}%"></span></div>
-		<p class="petit">${nbFait} / ${PY.exos.length} exercices réussis · Le premier lancement télécharge Python (≈ 10 Mo), ensuite il reste en cache.</p>
+		<p class="petit">${nbFait} / ${PY.exos.length} exercices compris${aRevoir.length ? ` · ${aRevoir.length} à revoir` : ""} · Le premier lancement télécharge Python (≈ 10 Mo), ensuite il reste en cache.</p>
 		<div class="rang">${suivant ? `<button class="bouton plein" data-py-ouvrir="${h(suivant.id)}">▶ Continuer : ${h(suivant.titre)}</button>` : ""}<button class="bouton" data-py-ouvrir="__bac">🧪 Bac à sable</button></div>
 	</section>
-	${Object.entries(themes).map(([t, l]) => `<section class="carte"><h2>${h(t)}</h2>${l.map((e) => `<div class="ligne cliquable" data-py-ouvrir="${h(e.id)}"><div class="corps"><div class="t">${PY.fait[e.id] ? "✅ " : ""}${h(e.titre)}</div><div class="s">${"●".repeat(e.niveau)}${"○".repeat(3 - e.niveau)}</div></div></div>`).join("")}</section>`).join("")}`;
+	${aRevoir.length ? `<section class="carte"><h2>🔁 À revoir (réussi mais pas encore compris)</h2>${aRevoir.map((e) => `<div class="ligne cliquable" data-py-ouvrir="${h(e.id)}"><div class="corps"><div class="t">${pyEtat(e.id).compris === "moyen" ? "🤔" : pyEtat(e.id).compris === "non" ? "😕" : "❔"} ${h(e.titre)}</div><div class="s">${h(e.theme)}</div></div></div>`).join("")}</section>` : ""}
+	${Object.entries(themes).map(([t, l]) => `<section class="carte"><h2>${h(t)}</h2>${l.map((e) => `<div class="ligne cliquable" data-py-ouvrir="${h(e.id)}"><div class="corps"><div class="t">${pyAcquis(e.id) ? "✅ " : pyEtat(e.id) ? "🔁 " : ""}${h(e.titre)}</div><div class="s">${"●".repeat(e.niveau)}${"○".repeat(3 - e.niveau)}</div></div></div>`).join("")}</section>`).join("")}`;
 }
+
+// ---------- Coloration syntaxique (couleurs lisibles en clair comme en sombre) ----------
+const PY_MOTS = new Set("False None True and as assert break class continue def del elif else except finally for from global if import in is lambda not or pass raise return try while with yield".split(" "));
+const PY_FONCS = new Set("print len range sum max min abs round float int str list dict tuple zip enumerate sorted type open".split(" "));
+const PY_RE = /(#[^\n]*)|("""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?)|(\b\d+\.?\d*(?:[eE][+-]?\d+)?\b|\.\d+\b)|([A-Za-z_][A-Za-z0-9_]*)/g;
+function pyColorer(code) {
+	const re = new RegExp(PY_RE.source, "g");
+	let out = "", dernier = 0, m;
+	while ((m = re.exec(code))) {
+		out += h(code.slice(dernier, m.index));
+		const t = m[0];
+		let cls = "";
+		if (m[1]) cls = "c"; else if (m[2]) cls = "s"; else if (m[3]) cls = "n";
+		else if (PY_MOTS.has(t)) cls = "k";
+		else if (PY_FONCS.has(t)) cls = "b";
+		else if (/^[A-Z][A-Z0-9_]{2,}$/.test(t)) cls = "a";
+		else if (code[re.lastIndex] === "(") cls = "f";
+		out += cls ? `<span class="tk-${cls}">${h(t)}</span>` : h(t);
+		dernier = re.lastIndex;
+	}
+	return out + h(code.slice(dernier)) + "\n";
+}
+// Markdown + blocs de code ``` colorés
+function pyMd(t = "") {
+	return String(t).split(/```(?:\w*)\n?/).map((bloc, i) => (i % 2 ? `<pre class="py-console">${pyColorer(bloc.replace(/\n$/, ""))}</pre>` : md(bloc))).join("");
+}
+function pyAjuster() {
+	const ta = document.getElementById("py-code"), hl = document.getElementById("py-hl");
+	if (!ta || !hl) return;
+	hl.innerHTML = pyColorer(ta.value);
+	ta.style.height = "auto";
+	ta.style.height = Math.max(240, ta.scrollHeight + 2) + "px";
+	hl.parentElement.scrollLeft = ta.scrollLeft;
+}
+document.addEventListener("scroll", (ev) => { if (ev.target.id === "py-code") { const p = document.getElementById("py-hl")?.parentElement; if (p) { p.scrollLeft = ev.target.scrollLeft; p.scrollTop = ev.target.scrollTop; } } }, true);
+new MutationObserver(() => { const ta = document.getElementById("py-code"); if (ta && !ta.dataset.ajuste) { ta.dataset.ajuste = "1"; pyAjuster(); } }).observe(document.documentElement, { childList: true, subtree: true });
 
 const PY_TOUCHES = [["⇥", "    "], [":", ":"], ["(", "("], [")", ")"], ["[", "["], ["]", "]"], ["=", "="], ["'", "'"], ['"', '"'], ["_", "_"], [",", ","], [".", "."], ["#", "# "], ["*", "*"], ["/", "/"], ["_F(", "_F("]];
 
@@ -87,23 +125,24 @@ function vuePyExercice(e) {
 	const idx = PY.exos.indexOf(e);
 	return `<button class="bouton petit-b" data-py-liste>‹ Python</button>
 	<section class="carte py-ex">
-		<div class="r-type">${h(e.theme)} · ${"●".repeat(e.niveau)}${"○".repeat(3 - e.niveau)}${PY.fait[e.id] ? " · ✅ réussi" : ""}</div>
+		<div class="r-type">${h(e.theme)} · ${"●".repeat(e.niveau)}${"○".repeat(3 - e.niveau)}${pyAcquis(e.id) ? " · ✅ compris" : pyEtat(e.id) ? " · 🔁 à revoir" : ""}</div>
 		<div class="py-titre">${h(e.titre)}</div>
-		<div class="r-md">${md(e.consigne)}</div>
+		${e.cours ? `<details class="py-cours" ${pyEtat(e.id) ? "" : "open"}><summary>🐍 Le point Python</summary><div class="r-md">${pyMd(e.cours.replace(/^\*\*Le point Python\.\*\*\s*/, ""))}</div></details>` : ""}
+		<div class="py-consigne"><div class="py-bloc-t">À toi</div><div class="r-md">${md(e.consigne)}</div></div>
 		<div class="py-editeur-zone">
 			<div class="py-touches">${PY_TOUCHES.map(([l, v]) => `<button type="button" class="py-touche" data-py-ins="${h(v)}">${h(l)}</button>`).join("")}</div>
-			<textarea id="py-code" class="py-code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" data-py-id="${h(e.id)}">${h(code)}</textarea>
+			<div class="py-ed"><pre class="py-hl" aria-hidden="true"><code id="py-hl">${pyColorer(code)}</code></pre><textarea id="py-code" class="py-code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" data-py-id="${h(e.id)}">${h(code)}</textarea></div>
 		</div>
 		<div class="rang py-actions">
 			<button class="bouton" data-py-run="exec">▶ Exécuter</button>
 			${e.test ? `<button class="bouton plein" data-py-run="verif">✓ Vérifier</button>` : ""}
 			${(e.indices || []).length ? `<button class="bouton" data-py-indice>💡 Indice</button>` : ""}
-			${e.solution && (essais >= 2 || PY.fait[e.id]) ? `<button class="bouton" data-py-solution>Solution</button>` : ""}
+			${e.solution && (essais >= 2 || pyEtat(e.id)) ? `<button class="bouton" data-py-solution>Solution</button>` : ""}
 			<button class="bouton" data-py-reset title="Revenir au code de départ">↺</button>
 		</div>
 		<div id="py-indices"></div>
 		<div id="py-sortie" class="py-sortie" hidden></div>
-		${idx >= 0 && idx < PY.exos.length - 1 ? `<div class="py-suivant" id="py-suivant" ${PY.fait[e.id] ? "" : "hidden"}><button class="bouton plein large" data-py-ouvrir="${h(PY.exos[idx + 1].id)}">Exercice suivant ›</button></div>` : ""}
+		${idx >= 0 && idx < PY.exos.length - 1 ? `<div class="py-suivant" id="py-suivant" ${pyEtat(e.id) ? "" : "hidden"}><button class="bouton plein large" data-py-ouvrir="${h(PY.exos[idx + 1].id)}">Exercice suivant ›</button></div>` : ""}
 	</section>`;
 }
 
@@ -121,7 +160,10 @@ function pyAfficher(res, e, verif) {
 		const ok = tests.length && tests.every((t) => t.ok);
 		html += `<div class="py-bloc-t">Correction</div><ul class="py-tests">${tests.map((t) => `<li class="${t.ok ? "ok" : "ko"}">${t.ok ? "✔" : "✗"} ${inline(h(String(t.msg).replace(/\s*✔\s*$/, "")))}</li>`).join("")}</ul>`;
 		if (ok) {
-			html += `<div class="py-bravo">🎉 Réussi !</div>${e.explication ? `<div class="r-aide py-expl"><div class="r-md">${md(e.explication)}</div></div>` : ""}`;
+			html += `<div class="py-bravo">🎉 Réussi !</div>${e.explication ? `<div class="r-aide py-expl"><div class="r-md">${pyMd(e.explication)}</div></div>` : ""}
+				<div class="py-compris" id="py-compris"><div class="py-bloc-t">Honnêtement, tu as compris ?</div>
+				<p class="petit">Réussir ne veut pas dire avoir compris. Ta réponse décide si l'exercice revient.</p>
+				<div class="rang"><button class="bouton plein" data-py-compris="oui">👍 J'ai compris</button><button class="bouton" data-py-compris="moyen">🤔 À moitié</button><button class="bouton" data-py-compris="non">😕 Pas vraiment</button></div></div>`;
 			pyReussi(e.id);
 		} else html += `<p class="petit">Corrige ce qui est marqué ✗ puis vérifie à nouveau.${(PY.essais[e.id] || 0) >= 2 ? " La solution est disponible." : ""}</p>`;
 	}
@@ -131,12 +173,31 @@ function pyAfficher(res, e, verif) {
 	z.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function pyReussi(id) {
-	if (PY.fait[id]) { $("#py-suivant") && ($("#py-suivant").hidden = false); return; }
-	PY.fait[id] = new Date().toISOString();
+// Progrès : { le, compris: "oui" | "moyen" | "non" | null }
+const pyEtat = (id) => { const f = PY.fait?.[id]; return !f ? null : typeof f === "string" ? { le: f, compris: "oui" } : f; };
+const pyAcquis = (id) => pyEtat(id)?.compris === "oui";
+function pySauver(id, msg) {
 	store.set("ae.pyFait", PY.fait);
+	if (S.token) modifier("revision/python/progres.json", "pyProgres", (p) => ({ ...p, [id]: PY.fait[id] }), msg, { defaut: {}, sansSynchro: true }).catch(() => {});
+}
+function pyReussi(id) {
+	const avant = pyEtat(id);
+	PY.fait[id] = { le: new Date().toISOString(), compris: avant?.compris === "oui" ? "oui" : null };
+	pySauver(id, `Python : exercice ${id} réussi`);
 	$("#py-suivant") && ($("#py-suivant").hidden = false);
-	if (S.token) modifier("revision/python/progres.json", "pyProgres", (p) => ({ ...p, [id]: PY.fait[id] }), `Python : exercice ${id} réussi`, { defaut: {}, sansSynchro: true }).catch(() => {});
+}
+function pyCompris(id, niveau) {
+	const e = pyEx(id);
+	PY.fait[id] = { ...(pyEtat(id) || { le: new Date().toISOString() }), compris: niveau };
+	pySauver(id, `Python : ${id} compris = ${niveau}`);
+	const z = $("#py-compris"); if (!z) return;
+	if (niveau === "oui") { z.innerHTML = `<p class="py-ok-msg">👍 Noté : exercice acquis.</p>`; return; }
+	const lien = "https://claude.ai/new?q=" + encodeURIComponent(`J'apprends Python pour Salome-Meca / Code_Aster et je débute. J'ai réussi cet exercice mais je ne l'ai pas bien compris. Explique-moi la solution LIGNE PAR LIGNE, très simplement, en disant à quoi sert chaque instruction Python et chaque commande Salome / Code_Aster, puis donne-moi un mini exercice similaire (sans la réponse).\n\nExercice : ${e?.titre}\n${e?.consigne}\n\nSolution :\n${e?.solution}`);
+	z.innerHTML = `<p>${niveau === "moyen" ? "🤔 D'accord : il reviendra dans « À revoir »." : "😕 Pas de souci : il reviendra dans « À revoir »."} Pour comprendre maintenant :</p>
+		<div class="py-bloc-t">La solution</div><pre class="py-console py-sol">${pyColorer(e?.solution || "")}</pre>
+		${e?.cours ? `<div class="py-bloc-t">Rappel</div><div class="r-md">${pyMd(e.cours)}</div>` : ""}
+		<div class="rang"><a class="bouton plein" href="${h(lien)}" target="_blank" rel="noopener">✦ Me l'expliquer ligne par ligne avec Claude</a><button class="bouton" data-py-refaire>↺ Refaire de zéro</button></div>`;
+	formules(z);
 }
 
 async function pyLancer(verif) {
@@ -172,7 +233,7 @@ function pyInserer(ta, txt) {
 }
 
 document.addEventListener("click", (ev) => {
-	const t = ev.target.closest("[data-py-ouvrir],[data-py-liste],[data-py-run],[data-py-ins],[data-py-indice],[data-py-solution],[data-py-reset],[data-py-module]");
+	const t = ev.target.closest("[data-py-ouvrir],[data-py-liste],[data-py-run],[data-py-ins],[data-py-indice],[data-py-solution],[data-py-reset],[data-py-module],[data-py-compris],[data-py-refaire]");
 	if (!t) return;
 	ev.preventDefault();
 	const d = t.dataset;
@@ -190,10 +251,12 @@ document.addEventListener("click", (ev) => {
 	}
 	if ("pySolution" in d && e) {
 		const z = $("#py-indices");
-		z.insertAdjacentHTML("beforeend", `<div class="py-bloc-t">Solution</div><pre class="py-console py-sol">${h(e.solution)}</pre><button class="bouton petit-b" data-py-ins-sol>Copier dans l'éditeur</button>`);
+		z.insertAdjacentHTML("beforeend", `<div class="py-bloc-t">Solution</div><pre class="py-console py-sol">${pyColorer(e.solution)}</pre><button class="bouton petit-b" data-py-ins-sol>Copier dans l'éditeur</button>`);
 		t.disabled = true;
 		return;
 	}
+	if (d.pyCompris && e) { pyCompris(e.id, d.pyCompris); return; }
+	if ("pyRefaire" in d && e) { delete PY.code[e.id]; store.set("ae.pyCode", PY.code); rendre(); window.scrollTo(0, 0); return; }
 	if ("pyReset" in d && e) { const ta = $("#py-code"); ta.value = e.depart; ta.dispatchEvent(new Event("input", { bubbles: true })); $("#py-sortie").hidden = true; }
 });
 document.addEventListener("click", (ev) => {
@@ -204,6 +267,7 @@ document.addEventListener("click", (ev) => {
 // Sauvegarde du code tapé + tabulation et indentation automatique
 document.addEventListener("input", (ev) => {
 	if (ev.target.id !== "py-code") return;
+	pyAjuster();
 	PY.code[ev.target.dataset.pyId] = ev.target.value;
 	clearTimeout(PY.tSave); PY.tSave = setTimeout(() => store.set("ae.pyCode", PY.code), 400);
 });

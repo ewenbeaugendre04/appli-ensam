@@ -15,7 +15,8 @@ def __executer(code, prepa, test, verifier_aussi):
     ancien = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = out
     try:
-        simu._etat.update({"debut": False})
+        simu._etat.update({"debut": False, "unites": {}, "fichiers": {}})
+        simu.MAILLAGES.pop("export", None)
         if prepa:
             exec(prepa, ns)
         try:
@@ -56,6 +57,11 @@ const PAQUETS = {
 	"salome/__init__.py": "def salome_init(*a, **k):\n    print('   -- salome_init : session Salome ouverte --')\n",
 	"salome/geom/__init__.py": "",
 	"salome/geom/geomBuilder.py": "from simu import GeomBuilder\ndef New(*a, **k):\n    return GeomBuilder()\n",
+	"salome/smesh/__init__.py": "",
+	"salome/smesh/smeshBuilder.py": "from simu import SmeshBuilder\nNETGEN_1D2D3D = 'NETGEN_1D2D3D'\ndef New(*a, **k):\n    return SmeshBuilder()\n",
+	"SMESH.py": "from simu import SMESH as _S\nNODE, EDGE, FACE, VOLUME = _S.NODE, _S.EDGE, _S.FACE, _S.VOLUME\n",
+	"GEOM.py": "from simu import ShapeType\n",
+	"fluide.py": "\"\"\"Solveur fluide simulé (écoulement établi dans un tuyau).\"\"\"\nfrom simu import EtudeFluide as Etude\n",
 };
 
 async function initialiser(simuUrl) {
@@ -64,6 +70,7 @@ async function initialiser(simuUrl) {
 	const simu = await (await fetch(simuUrl)).text();
 	py.FS.mkdirTree("/home/pyodide/code_aster");
 	py.FS.mkdirTree("/home/pyodide/salome/geom");
+	py.FS.mkdirTree("/home/pyodide/salome/smesh");
 	py.FS.writeFile("/home/pyodide/simu.py", simu);
 	for (const [f, c] of Object.entries(PAQUETS)) py.FS.writeFile("/home/pyodide/" + f, c);
 	await py.runPythonAsync(HARNAIS);
