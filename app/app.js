@@ -319,6 +319,89 @@ function ueDeNote(x) {
 	return segs.find((s) => /^[A-Z]{3,5}$/.test(s) && !/^(FITE|GIM|DS|TP|TD|EXAM|CC)$/.test(s)) || "Autres";
 }
 
+
+// ---------- Agenda hebdomadaire ----------
+// Minutes depuis minuit (heure de Paris)
+const minutesParis = (iso) => { const [H, M] = heure(iso).split(":").map(Number); return H * 60 + M; };
+function avancementSemaine(debutSem, finSem, parJour, tachesJour) {
+	const now = Date.now();
+	let total = 0, fait = 0, nb = 0, nbFaits = 0;
+	for (const evs of Object.values(parJour)) for (const e of evs) {
+		if (e.journee) continue;
+		const d = Date.parse(e.debut), f = Date.parse(e.fin);
+		if (!(f > d)) continue;
+		total += f - d; nb++;
+		if (now >= f) { fait += f - d; nbFaits++; } else if (now > d) fait += now - d;
+	}
+	const ts = Object.values(tachesJour).flat();
+	const tFaites = ts.filter((t) => t.fait).length;
+	const pc = total ? Math.round((100 * fait) / total) : (joursEntre(auj(), finSem) < 0 ? 100 : 0);
+	const heures = (ms) => { const m = Math.round(ms / 60e3); return `${Math.floor(m / 60)} h${m % 60 ? String(m % 60).padStart(2, "0") : ""}`; };
+	const pcT = ts.length ? Math.round((100 * tFaites) / ts.length) : 0;
+	return `<section class="carte ag-prog">
+		<div class="ag-prog-l"><span>Cours de la semaine</span><b>${pc} %</b></div>
+		<div class="ag-barre" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pc}"><span style="width:${pc}%"></span></div>
+		<div class="petit">${nb ? `${nbFaits} cours sur ${nb} terminés · ${heures(fait)} sur ${heures(total)}` : "Aucun cours cette semaine"}</div>
+		${ts.length ? `<div class="ag-prog-l" style="margin-top:12px"><span>Tâches à rendre cette semaine</span><b>${tFaites}/${ts.length}</b></div>
+		<div class="ag-barre taches"><span style="width:${pcT}%"></span></div>` : ""}
+	</section>`;
+}
+function grilleSemaine(debutSem, parJour, tachesJour) {
+	const aujC = auj();
+	const jours = [];
+	for (let i = 0; i < 7; i++) {
+		const c = ajouterJours(debutSem, i);
+		if (i < 5 || (parJour[c] || []).length || (tachesJour[c] || []).length) jours.push(c);
+	}
+	// Plage horaire : de la première à la dernière heure de cours de la semaine (8 h – 18 h au minimum)
+	let hMin = 8 * 60, hMax = 18 * 60;
+	for (const c of jours) for (const e of parJour[c] || []) if (!e.journee) { hMin = Math.min(hMin, minutesParis(e.debut)); hMax = Math.max(hMax, minutesParis(e.fin) || 24 * 60); }
+	const h0 = Math.floor(hMin / 60), h1 = Math.min(24, Math.ceil(hMax / 60));
+	const PX = 46; // pixels par heure
+	const hauteur = (h1 - h0) * PX;
+	const y = (min) => ((min - h0 * 60) / 60) * PX;
+	const now = Date.now();
+	const minNow = minutesParis(new Date().toISOString());
+	const tete = jours.map((c) => {
+		const d = new Date(c + "T12:00:00Z");
+		return `<div class="ag-tete ${c === aujC ? "auj" : ""}"><span>${h(fmt(d, { weekday: "short" }).replace(".", ""))}</span><b>${fmt(d, { day: "numeric" })}</b></div>`;
+	}).join("");
+	const haut = jours.map((c) => {
+		const jr = (parJour[c] || []).filter((e) => e.journee);
+		const ts = tachesJour[c] || [];
+		return `<div class="ag-jr">${jr.map((e) => `<button class="ag-puce" style="--c:${couleur(matiereDe(e))}" data-cours="${h(e.uid)}">${h(e.titre)}</button>`).join("")}${ts.map((t) => `<button class="ag-puce tache ${t.fait ? "fait" : ""}" style="--c:${couleur(t.matiere)}" data-tache="${h(t.id)}">${t.fait ? "✓" : "☐"} ${h(t.titre)}</button>`).join("")}</div>`;
+	}).join("");
+	const aHaut = jours.some((c) => (parJour[c] || []).some((e) => e.journee) || (tachesJour[c] || []).length);
+	const colonnes = jours.map((c) => {
+		const evs = (parJour[c] || []).filter((e) => !e.journee).sort((a, b) => a.debut.localeCompare(b.debut));
+		// Cours qui se chevauchent : côte à côte
+		const voies = [];
+		const place = evs.map((e) => { let v = voies.findIndex((fin) => fin <= e.debut); if (v < 0) { v = voies.length; voies.push(e.fin); } else voies[v] = e.fin; return v; });
+		const groupes = evs.map((e) => Math.max(1, ...evs.filter((x) => x.debut < e.fin && x.fin > e.debut).map((x) => place[evs.indexOf(x)] + 1)));
+		const blocs = evs.map((e, i) => {
+			const top = y(minutesParis(e.debut)), haut = Math.max(18, y(minutesParis(e.fin) || 24 * 60) - top);
+			const d = Date.parse(e.debut), f = Date.parse(e.fin);
+			const etat = now >= f ? "passe" : now > d ? "encours" : "";
+			const pc = etat === "encours" ? Math.round((100 * (now - d)) / (f - d)) : 0;
+			const larg = 100 / groupes[i];
+			return `<button class="ag-cours ${etat} ${e.examen ? "examen" : ""}" style="--c:${couleur(matiereDe(e))};top:${top}px;height:${haut}px;left:${place[i] * larg}%;width:calc(${larg}% - 2px)" data-cours="${h(e.uid)}" title="${h(e.titre)}">
+				${etat === "encours" ? `<span class="ag-fil" style="height:${pc}%"></span>` : ""}
+				${haut < 34 ? `<span class="ag-t ag-court"><b>${heure(e.debut)}</b> ${h(e.titre.replace(/ - (Enseignement|Projet)$/, ""))}</span>` : `<span class="ag-h">${heure(e.debut)}${e.examen ? " · Exam" : e.type ? " · " + h(e.type) : ""}</span>
+				<span class="ag-t">${h(e.titre.replace(/ - (Enseignement|Projet)$/, ""))}</span>`}
+				${haut > 56 && e.salle ? `<span class="ag-s">${h(salle(e.salle))}</span>` : ""}</button>`;
+		}).join("");
+		const ligneNow = c === aujC && minNow >= h0 * 60 && minNow <= h1 * 60 ? `<div class="ag-now" style="top:${y(minNow)}px"></div>` : "";
+		return `<div class="ag-col ${c === aujC ? "auj" : ""} ${c < aujC ? "passe" : ""}" style="height:${hauteur}px">${blocs}${ligneNow}</div>`;
+	}).join("");
+	const heures = Array.from({ length: h1 - h0 }, (_, i) => `<div class="ag-heure" style="top:${i * PX}px">${h0 + i}h</div>`).join("");
+	return `<div class="ag-semaine" style="--n:${jours.length};--px:${PX}px">
+		<div class="ag-ligne-tete"><div></div>${tete}</div>
+		${aHaut ? `<div class="ag-ligne-haut"><div class="ag-heure-vide"></div>${haut}</div>` : ""}
+		<div class="ag-corps"><div class="ag-heures" style="height:${hauteur}px">${heures}</div>${colonnes}</div>
+	</div>
+	${Object.values(parJour).flat().length ? "" : '<p class="vide" style="margin-top:14px">Aucun cours cette semaine.</p>'}`;
+}
+
 // ---------- Vues ----------
 const VUES = {
 	reviser: () => vueReviser(),
@@ -404,16 +487,21 @@ const VUES = {
 		const parJour = {};
 		for (const e of cours()) { const c = jourCle(e.debut); if (c >= debutSemaine && c <= finSemaine) (parJour[c] ||= []).push(e); }
 		const tachesJour = {};
-		for (const t of tachesOuvertes()) { const c = echeanceCle(t); if (c >= debutSemaine && c <= finSemaine) (tachesJour[c] ||= []).push(t); }
-		let html = `<div class="nav-semaine"><button class="bouton" data-semaine="-1">‹</button>
-			<strong>${S.semaine === 0 ? "Cette semaine" : h(fmt(debutSemaine + "T12:00:00Z", { day: "numeric", month: "short" })) + " – " + h(fmt(finSemaine + "T12:00:00Z", { day: "numeric", month: "short" }))}</strong><!--${h(fmt(finSemaine + "T12:00:00Z", { day: "numeric", month: "short" }))}-->
-			<span><button class="bouton" data-semaine="0">Auj.</button> <button class="bouton" data-semaine="1">›</button></span></div>`;
-		let rien = true;
+		for (const t of S.data.tasks || []) { if (!t.echeance) continue; const c = echeanceCle(t); if (c >= debutSemaine && c <= finSemaine) (tachesJour[c] ||= []).push(t); }
 		const aujC = auj();
+		const libSem = S.semaine === 0 ? "Cette semaine" : S.semaine === 1 ? "Semaine prochaine" : S.semaine === -1 ? "Semaine dernière" : h(fmt(debutSemaine + "T12:00:00Z", { day: "numeric", month: "short" })) + " – " + h(fmt(finSemaine + "T12:00:00Z", { day: "numeric", month: "short" }));
+		let html = `<div class="nav-semaine"><button class="bouton" data-semaine="-1" aria-label="Semaine précédente">‹</button>
+			<strong>${libSem}</strong>
+			<span><button class="bouton" data-semaine="0">Auj.</button> <button class="bouton" data-semaine="1" aria-label="Semaine suivante">›</button></span></div>`;
+		html += avancementSemaine(debutSemaine, finSemaine, parJour, tachesJour);
+		const modeListe = store.get("ae.agVue", "semaine") === "liste";
+		html += `<div class="segments ag-seg"><button data-ag-vue="semaine" class="${modeListe ? "" : "actif"}">Semaine</button><button data-ag-vue="liste" class="${modeListe ? "actif" : ""}">Liste</button></div>`;
+		if (!modeListe) return html + grilleSemaine(debutSemaine, parJour, tachesJour);
+		let rien = true;
 		const passes = [];
 		for (let i = 0; i < 7; i++) {
 			const c = ajouterJours(debutSemaine, i);
-			const ev = parJour[c] || [], ts = tachesJour[c] || [];
+			const ev = parJour[c] || [], ts = (tachesJour[c] || []).filter((t) => !t.fait);
 			// Semaine en cours : aujourd'hui toujours en premier, les jours passés repliés en bas
 			if (S.semaine === 0 && c < aujC) { if (ev.length || ts.length) passes.push([c, ev, ts]); continue; }
 			if (c === aujC && !ev.length && !ts.length) { html += `<div class="jour-titre auj">Aujourd'hui</div><div class="carte"><p class="vide">Aucun cours aujourd'hui.</p></div>`; rien = false; continue; }
@@ -657,7 +745,7 @@ async function enregistrerToken(val) {
 }
 
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours],[data-partiel-voir]");
+	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours],[data-partiel-voir],[data-ag-vue]");
 	if (!el) return;
 	const d = el.dataset;
 	if ("fermer" in d) return fermerFeuille();
@@ -667,6 +755,7 @@ document.addEventListener("click", (e) => {
 	if (d.partielVoir) { R.partiel = d.partielVoir; R.session = null; R.ouvert = null; fermerFeuille(); if (location.hash !== "#reviser") location.hash = "#reviser"; else rendre(); window.scrollTo(0, 0); return; }
 	if (d.semaine !== undefined) { S.semaine = d.semaine === "0" ? 0 : S.semaine + Number(d.semaine); return rendre(); }
 	if (d.seg) { S.segTaches = d.seg; return rendre(); }
+	if (d.agVue) { store.set("ae.agVue", d.agVue); return rendre(); }
 	if ("nouveauPartiel" in d) return formPartiel();
 	if (d.tachePour) return formTache({}, { matiere: d.tachePour });
 	if (d.suivre) {
@@ -726,6 +815,8 @@ document.querySelector('#onglets a[data-v="reviser"]').addEventListener("click",
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") charger(); });
 window.addEventListener("online", () => charger());
 setInterval(() => { if (document.visibilityState === "visible") charger(); }, 5 * 60e3);
+// Agenda : barre d'avancement et trait « maintenant » à jour chaque minute
+setInterval(() => { if (document.visibilityState === "visible" && S.vue === "agenda" && !document.querySelector(".feuille:not([hidden])")) rendre(); }, 60e3);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 initRevisionCache();
