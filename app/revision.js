@@ -137,6 +137,7 @@ function chapitresPartiel(p) {
 	return dedie ? [dedie, ...base] : base;
 }
 const trouverPartiel = (id) => partielsTous().find((p) => p.id === id);
+const estPartielQCM = (p) => /\bqcm\b|toeic/i.test(norm((p.titre || "") + " " + (p.description || "")));
 function preparation(chs) {
 	const its = chs.flatMap((ch) => (ch.items || []).filter((it) => RECALL.includes(it.type) || EXOS.includes(it.type)).map((it) => cle(ch.id, it.id)));
 	if (!its.length) return 0;
@@ -726,7 +727,13 @@ function demarrerSession(type) {
 		const boite = (x) => (S.data.progres[x.k] || {}).boite || 0;
 		if (mode === "cartes") { titre = "Cartes · " + p.titre; l = melanger(l.filter((x) => RECALL.includes(x.it.type))).sort((a, b) => boite(a) - boite(b)).slice(0, 30); }
 		else if (mode === "exos") { titre = "Exercices · " + p.titre; l = melanger(l.filter((x) => EXOS.includes(x.it.type))).slice(0, 20); }
-		else if (mode === "blanc") { titre = "Test blanc · " + p.titre; l = melanger(l.filter((x) => ["qcm", "trous", "calcul"].includes(x.it.type))).slice(0, 15); }
+		else if (mode === "blanc") {
+			// Partiel annoncé en QCM (ou TOEIC) : test blanc 100 % QCM. Sinon, pas d'exercice de plus de 3 calculs.
+			const qcmSeul = estPartielQCM(p);
+			titre = (qcmSeul ? "Test blanc QCM · " : "Test blanc · ") + p.titre;
+			const court = (it) => it.type !== "calcul" || (it.etapes || []).length <= 3;
+			l = melanger(l.filter((x) => (qcmSeul ? x.it.type === "qcm" : ["qcm", "trous", "calcul"].includes(x.it.type) && court(x.it)))).slice(0, qcmSeul ? 20 : 15);
+		}
 		else { titre = p.titre; const cache = {}; l = l.filter(travail).sort((a, b) => scoreItem(a, cache) - scoreItem(b, cache) + (Math.random() - 0.5) * 2).slice(0, 25); l = melanger(l); }
 		liste = l;
 	} else if (type === "partiel") {
