@@ -242,6 +242,16 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 }
 
 // ---------- Programme principal ----------
+// Lise ne renvoie que les semaines à venir : on garde les cours déjà passés
+// (ceux qui commencent avant le premier cours renvoyé par Lise) pour ne pas perdre l'historique.
+export function fusionPasse(anciens, fresh) {
+	if (!fresh.length) return anciens;
+	const debutLise = fresh.reduce((m, e) => (e.debut < m ? e.debut : m), fresh[0].debut);
+	const uids = new Set(fresh.map((e) => e.uid));
+	const passes = (anciens || []).filter((e) => e.debut < debutLise && !uids.has(e.uid));
+	return [...passes, ...fresh].sort((a, b) => a.debut.localeCompare(b.debut));
+}
+
 async function main() {
 	if (!TOKEN && !LOCAL_ICS) throw new Error("Secret DATA_TOKEN manquant");
 	const cfg = await readJson("config.json", { data: {} });
@@ -261,7 +271,7 @@ async function main() {
 		const fresh = normaliseLise(raw);
 		if (fresh.length === 0 && events.length > 0) {
 			etat = { ok: false, message: "Lise a renvoyé un calendrier vide : ancienne version conservée" };
-		} else events = fresh;
+		} else events = fusionPasse(events, fresh);
 	} catch (err) {
 		etat = { ok: false, message: `Lise injoignable (${err.message}) : ancienne version conservée` };
 		console.log(`::warning title=Lise::${etat.message}`);
