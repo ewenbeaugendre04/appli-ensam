@@ -53,7 +53,7 @@
 				const a = x.apres;
 				if (x.type !== "ajout" || !a || !a.examen || connus.has(a.uid) || decides.has(x.id)) continue;
 				const ov = surcharges.find((p) => p.liseUid === a.uid) || {};
-				sup.push({ id: "lise-" + a.uid, liseUid: a.uid, titre: ov.titre || a.titre, debut: a.debut, fin: a.fin, salle: a.salle, matiere: ov.matiere || matiereDe(a), type: a.type, description: ov.description || "", chapitres: ov.chapitres || null, surchargeId: ov.id || "", source: "Lise" };
+				sup.push({ id: "lise-" + a.uid, liseUid: a.uid, titre: ov.titre || a.titre, debut: a.debut, fin: a.fin, salle: a.salle, matiere: ov.matiere || matiereDe(a), type: a.type, description: ov.description || "", chapitres: ov.chapitres || null, surchargeId: ov.id || "", source: "Lise" });
 			}
 			return sup.length ? [...base, ...sup].sort((p, q) => p.debut.localeCompare(q.debut)) : base;
 		};
