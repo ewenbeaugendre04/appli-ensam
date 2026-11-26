@@ -85,14 +85,42 @@ const JOUR = 86400e3;
 const PLAN_DEBUT = Math.floor((Date.now() - 7 * JOUR) / JOUR) * JOUR;
 const PLAN_FIN = PLAN_DEBUT + 49 * JOUR;
 let planningBrut = null;
+let ctxAgenda = null; // { schedId, idInit, vs } : pour interroger la fiche d'un cours
+async function ecrireFichier(path, objet, message) {
+	const r = await gh(path);
+	const sha = r.ok ? (await r.json()).sha : null;
+	const body = { message, content: Buffer.from(JSON.stringify(objet, null, 2) + "\n").toString("base64"), committer: { name: "Appli ENSAM", email: "appli-ensam@users.noreply.github.com" } };
+	if (sha) body.sha = sha;
+	return gh(path, { method: "PUT", body: JSON.stringify(body) });
+}
 async function ecrirePlanningBrut() {
 	if (!planningBrut || !TOKEN) return;
-	const r = await gh("planning-web.json");
-	const sha = r.ok ? (await r.json()).sha : null;
-	const body = { message: "Planning Lise (site) : réponse brute", content: Buffer.from(JSON.stringify({ majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, events: planningBrut }, null, 2) + "\n").toString("base64"), committer: { name: "Appli ENSAM", email: "appli-ensam@users.noreply.github.com" } };
-	if (sha) body.sha = sha;
-	const w = await gh("planning-web.json", { method: "PUT", body: JSON.stringify(body) });
+	const w = await ecrireFichier("planning-web.json", { majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, events: planningBrut }, "Planning Lise (site) : réponse brute");
 	console.log(`Planning du site : ${planningBrut.length} cours, écriture ${w.status}`);
+}
+// Sonde (diagnostic) : demande à Lise la fiche de quelques cours (comme un clic dans l'agenda) pour repérer
+// où se trouvent le code du cours et le nombre d'apprenants. La réponse brute est gardée dans le dépôt privé.
+async function sonderDetails() {
+	if (!ctxAgenda || !planningBrut || !TOKEN) return;
+	const cibles = [planningBrut.find((e) => /Réaliser Produit/.test(e.title)), planningBrut.find((e) => e.id != null)].filter(Boolean);
+	const vus = new Set();
+	const resultats = [];
+	for (const e of cibles) {
+		if (vus.has(e.title + e.start)) continue;
+		vus.add(e.title + e.start);
+		const res = { title: e.title, start: e.start, id: e.id ?? null, champs: Object.keys(e) };
+		try {
+			const { schedId, idInit, vs } = ctxAgenda;
+			if (e.id != null) {
+				const r = await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": schedId, "javax.faces.partial.execute": schedId, "javax.faces.behavior.event": "eventSelect", "javax.faces.partial.event": "eventSelect", [schedId + "_selectedEventId"]: String(e.id), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true);
+				res.statut = r.status;
+				res.reponse = (await r.text()).slice(0, 30000);
+			}
+		} catch (err) { res.erreur = String(err.message || err); }
+		resultats.push(res);
+	}
+	await ecrireFichier("planning-detail-debug.json", { majLe: new Date().toISOString(), premierCours: planningBrut[0], resultats }, "Planning Lise : sonde de la fiche d'un cours");
+	console.log(`Sonde des fiches : ${resultats.length} cours.`);
 }
 
 async function pageNotes() {
@@ -105,8 +133,10 @@ async function pageNotes() {
 	const schedId = accueil.match(/PrimeFaces\.cw\("Schedule","[^"]+",\{id:"([^"]+)"/)?.[1] || "form:j_idt849:j_idt852";
 	const r1 = await (await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": schedId, "javax.faces.partial.execute": schedId, "javax.faces.partial.render": schedId, [schedId]: schedId, [schedId + "_start"]: String(PLAN_DEBUT), [schedId + "_end"]: String(PLAN_FIN), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true)).text();
 	const cdata = r1.match(/<!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1];
-	try { const evs = JSON.parse(cdata).events; if (Array.isArray(evs) && evs.length) planningBrut = evs.map(({ title, start, end, className }) => ({ title, start, end, type: className })); } catch { /* format inattendu : on garde le lien iCal */ }
+	// On garde tous les champs renvoyés par Lise pour chaque cours (identifiant, données étendues…), pas seulement titre et horaires
+	try { const evs = JSON.parse(cdata).events; if (Array.isArray(evs) && evs.length) planningBrut = evs.map((e) => ({ ...e, type: e.className })); } catch { /* format inattendu : on garde le lien iCal */ }
 	const vs2 = decoder(r1.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1] || r1.match(/<update id="j_id1:javax\.faces\.ViewState:0">([\s\S]*?)<\/update>/)?.[1] || vs);
+	ctxAgenda = { schedId, idInit, vs: vs2 };
 	await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt52", "javax.faces.partial.execute": "form:j_idt52", "javax.faces.partial.render": "form:sidebar", "form:j_idt52": "form:j_idt52", "webscolaapp.Sidebar.ID_SUBMENU": MENU_NOTES.submenuId, ...FORM(idInit), "javax.faces.ViewState": vs2 }, true);
 	return (await post({ ...FORM(idInit), "javax.faces.ViewState": vs2, "form:sidebar": "form:sidebar", "form:sidebar_menuid": MENU_NOTES.buttonId }, false)).text();
 }
@@ -138,6 +168,7 @@ async function main() {
 	} catch (e) { etat = { ok: false, message: e.message }; console.error("Notes :", e.message); }
 	if (LOCAL_HTML) { console.log(JSON.stringify({ etat, notes }, null, 2)); return; }
 	try { await ecrirePlanningBrut(); } catch (e) { console.error("Planning :", e.message); }
+	try { await sonderDetails(); } catch (e) { console.error("Sonde :", e.message); }
 	const { data: ancien, sha } = await lireNotes();
 	if (!etat.ok) {
 		// On garde les anciennes notes et on signale juste l'échec
