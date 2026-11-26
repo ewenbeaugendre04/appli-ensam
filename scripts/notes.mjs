@@ -79,6 +79,22 @@ const post = (body, ajax) => requete(`${LISE}/faces/MainMenuPage.xhtml`, {
 	method: "POST", body: new URLSearchParams(body).toString(),
 	headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", Origin: LISE, Referer: `${LISE}/`, ...(ajax ? { "Faces-Request": "partial/ajax", "X-Requested-With": "XMLHttpRequest", Accept: "application/xml, text/xml, */*; q=0.01" } : { Accept: "text/html,application/xhtml+xml,*/*;q=0.8" }) },
 });
+// Planning du site (plus à jour que le lien iCal) : l'agenda de la page d'accueil est chargé
+// pour 1 semaine en arrière et 6 semaines en avant ; la réponse brute est gardée dans le dépôt privé.
+const JOUR = 86400e3;
+const PLAN_DEBUT = Math.floor((Date.now() - 7 * JOUR) / JOUR) * JOUR;
+const PLAN_FIN = PLAN_DEBUT + 49 * JOUR;
+let planningBrut = null;
+async function ecrirePlanningBrut() {
+	if (!planningBrut || !TOKEN) return;
+	const r = await gh("planning-web.json");
+	const sha = r.ok ? (await r.json()).sha : null;
+	const body = { message: "Planning Lise (site) : réponse brute", content: Buffer.from(JSON.stringify({ majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, brut: planningBrut }, null, 2) + "\n").toString("base64"), committer: { name: "Appli ENSAM", email: "appli-ensam@users.noreply.github.com" } };
+	if (sha) body.sha = sha;
+	const w = await gh("planning-web.json", { method: "PUT", body: JSON.stringify(body) });
+	console.log(`Planning du site : ${planningBrut.length} caractères, écriture ${w.status}`);
+}
+
 async function pageNotes() {
 	const login = await requete(`${LISE}/login`, { method: "POST", pasDeSuivi: true, body: new URLSearchParams({ username: USER, password: PASS, j_idt28: "" }).toString(), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
 	if (login.status !== 302 || !jar.has("JSESSIONID")) throw new Error(`Connexion Lise refusée (${login.status}) : vérifie l'identifiant et le mot de passe`);
@@ -86,7 +102,8 @@ async function pageNotes() {
 	if (/Connectez-vous|Sign in/i.test(accueil.match(/<title>(.*?)<\/title>/is)?.[1] || "")) throw new Error("Session Lise non ouverte");
 	const vs = champCache(accueil, "javax.faces.ViewState"), idInit = champCache(accueil, "form:idInit");
 	if (!vs || !idInit) throw new Error("Page d'accueil Lise inattendue (champs cachés absents)");
-	const r1 = await (await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt849:j_idt852", "javax.faces.partial.execute": "form:j_idt849:j_idt852", "javax.faces.partial.render": "form:j_idt849:j_idt852", "form:j_idt849:j_idt852": "form:j_idt849:j_idt852", "form:j_idt849:j_idt852_start": "1761519600000", "form:j_idt849:j_idt852_end": "1761606000000", ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true)).text();
+	const r1 = await (await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt849:j_idt852", "javax.faces.partial.execute": "form:j_idt849:j_idt852", "javax.faces.partial.render": "form:j_idt849:j_idt852", "form:j_idt849:j_idt852": "form:j_idt849:j_idt852", "form:j_idt849:j_idt852_start": String(PLAN_DEBUT), "form:j_idt849:j_idt852_end": String(PLAN_FIN), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true)).text();
+	planningBrut = r1;
 	const vs2 = decoder(r1.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1] || r1.match(/<update id="j_id1:javax\.faces\.ViewState:0">([\s\S]*?)<\/update>/)?.[1] || vs);
 	await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt52", "javax.faces.partial.execute": "form:j_idt52", "javax.faces.partial.render": "form:sidebar", "form:j_idt52": "form:j_idt52", "webscolaapp.Sidebar.ID_SUBMENU": MENU_NOTES.submenuId, ...FORM(idInit), "javax.faces.ViewState": vs2 }, true);
 	return (await post({ ...FORM(idInit), "javax.faces.ViewState": vs2, "form:sidebar": "form:sidebar", "form:sidebar_menuid": MENU_NOTES.buttonId }, false)).text();
@@ -118,6 +135,7 @@ async function main() {
 		if (notes == null) throw new Error("Tableau des notes introuvable (Lise a peut-être changé son menu)");
 	} catch (e) { etat = { ok: false, message: e.message }; console.error("Notes :", e.message); }
 	if (LOCAL_HTML) { console.log(JSON.stringify({ etat, notes }, null, 2)); return; }
+	try { await ecrirePlanningBrut(); } catch (e) { console.error("Planning :", e.message); }
 	const { data: ancien, sha } = await lireNotes();
 	if (!etat.ok) {
 		// On garde les anciennes notes et on signale juste l'échec
