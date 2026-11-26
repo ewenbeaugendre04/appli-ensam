@@ -18,6 +18,11 @@
 .ecart .ec-suppression{background:#fbe0e0;color:#9b1c1c}
 .ecart .ec-actions{display:flex;gap:8px;margin-top:8px}
 .ec-tete{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.ec-diff{margin-top:6px;border-radius:12px;background:var(--fond-2,#eee);padding:8px 10px;font-size:14px;display:grid;gap:6px}
+.ec-l{display:grid;grid-template-columns:70px 1fr;gap:8px;align-items:baseline}
+.ec-l>span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--doux,#777)}
+.ec-l.vide>div{color:var(--doux,#777);font-style:italic}
+.ec-ch{background:rgba(255,200,0,.35);border-radius:4px;padding:0 3px;font-weight:600}
 `;
 	document.head.appendChild(style);
 
@@ -29,6 +34,24 @@
 		return ((S.data.ecarts || {}).ecarts || []).filter((e) => !decides.has(e.id) && (!debutEcart(e) || jourCle(debutEcart(e)) >= debutJour));
 	}
 	const LIBELLE = { ajout: "Ajout", horaire: "Horaire", suppression: "Absent du site" };
+
+	// Lignes « lien iCal » et « site » d'un écart, avec les champs différents mis en évidence
+	function diff(e) {
+		const champs = (c) => c ? {
+			jour: fmt(c.debut, { weekday: "short", day: "numeric", month: "numeric" }),
+			horaire: c.journee ? "journée" : `${heure(c.debut)}–${heure(c.fin)}`,
+			titre: `${c.titre || c.module || "—"}${c.type ? ` (${c.type})` : ""}`,
+			salle: c.salle || "—",
+		} : null;
+		const a = champs(e.avant), b = champs(e.apres);
+		const ligne = (nom, f, autre) => {
+			if (!f) return `<div class="ec-l vide"><span>${nom}</span><div>absent</div></div>`;
+			const v = (k) => { const t = h(f[k]); return autre && autre[k] !== f[k] ? `<span class="ec-ch">${t}</span>` : t; };
+			return `<div class="ec-l"><span>${nom}</span><div>${v("jour")} · ${v("horaire")} · ${v("titre")} · ${v("salle")}</div></div>`;
+		};
+		const both = a && b;
+		return `<div class="ec-diff">${ligne("Lien iCal", a, both ? b : null)}${ligne("Site Lise", b, both ? a : null)}</div>`;
+	}
 
 	async function chargerEcarts() {
 		if (!S.token) return;
@@ -58,7 +81,7 @@
 		const liste = enAttente();
 		const maj = (S.data.ecarts || {}).majLe;
 		const carte = (e) => `<div class="ecart"><span class="ec-type ec-${h(e.type)}">${h(LIBELLE[e.type] || e.type)}</span>
-			<div>${h(e.resume)}</div>
+			${diff(e)}
 			<div class="ec-actions"><button class="bouton plein petit-b" data-ec-app="${h(e.id)}">Appliquer</button><button class="bouton petit-b" data-ec-ign="${h(e.id)}">Ignorer</button></div></div>`;
 		return `<section class="carte"><h2>Planning : lien Lise ≠ site Lise</h2>
 			<p class="petit">Le site Lise est en général plus à jour que le lien iCal (surtout pour les partiels). Rien n'est modifié sans ton accord.${maj ? ` Vérifié ${h(fmt(maj, { weekday: "short", hour: "2-digit", minute: "2-digit" }))}.` : ""}</p>
