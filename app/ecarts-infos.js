@@ -1,6 +1,6 @@
 "use strict";
 // Onglet Écarts : pour chaque écart, un verdict (sans conséquence / à vérifier / important), l'explication
-// et les détails du cours (jour, horaire, durée, salle, intervenant), pour comprendre vite si c'est un problème.
+// et les détails du cours (nom exact, code Lise, jour, horaire, durée, salle, intervenant, public), pour comprendre vite si c'est un problème.
 (function () {
 	const DEC0 = { appliques: [], ignores: [] };
 	const st = document.createElement("style");
@@ -16,15 +16,18 @@
 .ec-badge.v-warn{background:#d9822b;color:#fff}
 .ec-badge.v-imp{background:#b3261e;color:#fff}
 .ec-titre{font-weight:700;font-size:16px;margin:2px 0}
+.ec-prof{font-size:14px;margin:2px 0}
 .ec-jour{color:var(--doux,#777);font-size:14px;text-transform:capitalize}
 .ec-expl{margin:8px 0 2px;font-size:14px;line-height:1.4}
 .ec-conseil{margin:4px 0 0;font-size:13px;color:var(--doux,#777)}
-.ec-det{margin-top:8px;border-radius:12px;background:var(--fond-2,#eee);padding:8px 10px;display:grid;gap:8px;font-size:13.5px}
-.ec-bloc>span{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;color:#fff;padding:1px 6px;margin-bottom:2px}
+.ec-det{margin-top:8px;border-radius:12px;background:var(--fond-2,#eee);padding:8px 10px;display:grid;gap:10px;font-size:13.5px}
+.ec-bloc{display:grid;gap:2px;overflow-wrap:anywhere}
+.ec-bloc>span{justify-self:start;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;color:#fff;padding:1px 6px;margin-bottom:2px}
 .ec-bloc.std>span{background:#2f6fb0}
 .ec-bloc.lise>span{background:#d9822b}
 .ec-bloc.vide>div{color:var(--doux,#777);font-style:italic}
 .ec-bloc small{color:var(--doux,#777)}
+.ec-bloc code{font:12px ui-monospace,Menlo,monospace}
 .ec-ch{background:rgba(255,200,0,.4);border-radius:4px;padding:0 3px;font-weight:700}
 .ec-resume{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 6px}
 .ec-resume .ec-badge{font-size:13px;padding:3px 10px}
@@ -93,13 +96,23 @@
 
 	function bloc(nom, cls, c, autre) {
 		if (!c) return `<div class="ec-bloc vide ${cls}"><span>${nom}</span><div>absent</div></div>`;
-		const v = (k, t) => (autre && k(autre) !== k(c) ? `<span class="ec-ch">${h(t)}</span>` : h(t));
-		const g = { jour: (x) => fmt(x.debut, { weekday: "long", day: "numeric", month: "long" }), h: (x) => `${heure(x.debut)}–${heure(x.fin)}`, salle: (x) => x.salle || "—", profs: (x) => x.profs || "—", titre: (x) => `${x.titre || x.module || "—"}${x.type ? ` (${x.type})` : ""}`, grp: (x) => x.groupes || "—" };
+		const g = {
+			jour: (x) => fmt(x.debut, { weekday: "long", day: "numeric", month: "long" }),
+			h: (x) => `${heure(x.debut)}–${heure(x.fin)}`,
+			salle: (x) => x.salle || "—",
+			prof: (x) => x.profs || "non renseigné",
+			titre: (x) => `${x.titre || x.module || "—"}${x.type ? ` (${x.type})` : ""}`,
+			code: (x) => x.code || "",
+			grp: (x) => x.groupes || "non renseigné",
+		};
+		const v = (k) => { const t = h(g[k](c)); return autre && g[k](autre) !== g[k](c) ? `<span class="ec-ch">${t}</span>` : t; };
 		return `<div class="ec-bloc ${cls}"><span>${nom}</span>
-			<div><b>${v(g.titre, g.titre(c))}</b></div>
-			<div>${v(g.jour, g.jour(c))} · ${v(g.h, g.h(c))} <small>(${dureeTxt(min(c))})</small></div>
-			<div><small>Salle</small> ${v(g.salle, g.salle(c))} · <small>Intervenant</small> ${v(g.profs, g.profs(c))}</div>
-			<div><small>${h(g.grp(c))}</small></div></div>`;
+			<div><small>Cours</small> <b>${v("titre")}</b></div>
+			${c.code ? `<div><small>Code Lise</small> <code>${v("code")}</code></div>` : ""}
+			<div><small>Quand</small> ${v("jour")} · ${v("h")} <small>(${dureeTxt(min(c))})</small></div>
+			<div><small>Intervenant</small> <b>${v("prof")}</b></div>
+			<div><small>Salle</small> ${v("salle")}</div>
+			<div><small>Public concerné</small> ${v("grp")}</div></div>`;
 	}
 
 	const LIB = { ajout: "Ajout", horaire: "Horaire", suppression: "Absent du site" };
@@ -119,6 +132,7 @@
 			return `<div class="ec-carte">
 				<div class="ec-ligne1"><span class="ec-badge t-${h(e.type)}">${h(LIB[e.type] || e.type)}</span><span class="ec-badge ${NIV[r.niveau]}">${h(r.verdict)}</span></div>
 				<div class="ec-titre">${h(c.titre || c.module)}${c.type ? ` (${h(c.type)})` : ""}</div>
+				<div class="ec-prof">${c.profs ? `Intervenant : <b>${h(c.profs)}</b>` : "Intervenant non renseigné"} · ${h(c.groupes || "public non renseigné")}</div>
 				<div class="ec-jour">${h(fmt(c.debut, { weekday: "long", day: "numeric", month: "long" }))}</div>
 				<p class="ec-expl">${h(r.expl)}</p><p class="ec-conseil">${h(r.conseil)}</p>
 				<div class="ec-det">${bloc("Standard (lien iCal)", "std", e.avant, e.apres)}${bloc("Lise (site)", "lise", e.apres, e.avant)}</div>
@@ -126,6 +140,7 @@
 		};
 		return `<section class="carte"><h2>Planning : lien Lise ≠ site Lise</h2>
 			<p class="petit">Le site Lise est en général plus à jour que le lien iCal (surtout pour les partiels). Rien n'est modifié sans ton accord. Un écart appliqué est ajouté à ton calendrier à la prochaine synchro (1 à 2 minutes).${maj ? ` Vérifié ${h(fmt(maj, { weekday: "short", hour: "2-digit", minute: "2-digit" }))}.` : ""}</p>
+			<p class="petit">Lise ne donne pas le nombre d'élèves : le public concerné est le groupe indiqué (par exemple « Classe entière » ou « TD2 »).</p>
 			${liste.length ? `<div class="ec-resume">${compte("imp") ? `<span class="ec-badge v-imp">${compte("imp")} important${compte("imp") > 1 ? "s" : ""}</span>` : ""}${compte("warn") ? `<span class="ec-badge v-warn">${compte("warn")} à vérifier</span>` : ""}${compte("ok") ? `<span class="ec-badge v-ok">${compte("ok")} sans conséquence</span>` : ""}</div>
 			<div class="ec-tete"><button class="bouton plein petit-b" data-ec-tout="app">Tout appliquer (${liste.length})</button><button class="bouton petit-b" data-ec-tout="ign">Tout ignorer</button></div>${liste.map(carte).join("")}` : '<p class="vide">Aucun écart à traiter.</p>'}</section>`;
 	};
