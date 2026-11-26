@@ -72,6 +72,18 @@ export function analyserNotes(html) {
 	}
 	return notes;
 }
+// Fiche d'un cours (fenêtre ouverte au clic dans l'agenda) : nombre d'apprenants, code du cours, statut, matière
+export function analyserFiche(xml) {
+	const cd = [...xml.matchAll(/<!\[CDATA\[([\s\S]*?)\]\]>/g)].map((m) => m[1]).join("\n");
+	const t = texte(cd);
+	const nb = t.match(/Apprenants\s*\((\d+)\)/i)?.[1];
+	return {
+		apprenants: nb ? Number(nb) : null,
+		code: t.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){3,}\b/)?.[0] || "",
+		statut: t.match(/Statut\s+(.+?)\s+Mati[èe]re/i)?.[1] || "",
+		matiere: t.match(/Mati[èe]re\s+(.+?)\s+Type d'enseignement/i)?.[1] || "",
+	};
+}
 
 // ---------- Navigation Lise ----------
 const FORM = (idInit) => ({ form: "form", "form:largeurDivCenter": "1279", "form:idInit": idInit, "form:sauvegarde": "", "form:j_idt849:j_idt852_view": "basicDay", "form:j_idt814:j_idt816_dropdown": "1", "form:j_idt814:j_idt816_mobiledropdown": "1", "form:j_idt814:j_idt816_page": "0" });
@@ -86,6 +98,12 @@ const PLAN_DEBUT = Math.floor((Date.now() - 7 * JOUR) / JOUR) * JOUR;
 const PLAN_FIN = PLAN_DEBUT + 49 * JOUR;
 let planningBrut = null;
 let ctxAgenda = null; // { schedId, idInit, vs } : pour interroger la fiche d'un cours
+async function lireFichier(path) {
+	const r = await gh(path);
+	if (!r.ok) return { data: null, sha: null };
+	const j = await r.json();
+	return { data: JSON.parse(Buffer.from(j.content, "base64").toString("utf8")), sha: j.sha };
+}
 async function ecrireFichier(path, objet, message) {
 	const r = await gh(path);
 	const sha = r.ok ? (await r.json()).sha : null;
@@ -98,29 +116,40 @@ async function ecrirePlanningBrut() {
 	const w = await ecrireFichier("planning-web.json", { majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, events: planningBrut }, "Planning Lise (site) : réponse brute");
 	console.log(`Planning du site : ${planningBrut.length} cours, écriture ${w.status}`);
 }
-// Sonde (diagnostic) : demande à Lise la fiche de quelques cours (comme un clic dans l'agenda) pour repérer
-// où se trouvent le code du cours et le nombre d'apprenants. La réponse brute est gardée dans le dépôt privé.
-async function sonderDetails() {
+// Fiches des cours concernés par un écart (comme un clic dans l'agenda) : code du cours et nombre d'apprenants.
+// Résultat : planning-details.json ; les deux premières réponses brutes sont gardées dans planning-detail-debug.json.
+async function recupererDetails() {
 	if (!ctxAgenda || !planningBrut || !TOKEN) return;
-	const cibles = [planningBrut.find((e) => /Réaliser Produit/.test(e.title)), planningBrut.find((e) => e.id != null)].filter(Boolean);
-	const vus = new Set();
-	const resultats = [];
-	for (const e of cibles) {
-		if (vus.has(e.title + e.start)) continue;
-		vus.add(e.title + e.start);
-		const res = { title: e.title, start: e.start, id: e.id ?? null, champs: Object.keys(e) };
+	const cibles = [];
+	const ajouter = (w) => { if (w && w.id != null && !cibles.includes(w)) cibles.push(w); };
+	try {
+		const ec = (await lireFichier("ecarts.json")).data?.ecarts || [];
+		for (const x of ec) {
+			if (!x.apres) continue;
+			ajouter(planningBrut.find((e) => new Date(e.start).toISOString() === x.apres.debut && (!x.apres.module || e.title.includes(x.apres.module))));
+		}
+	} catch (err) { console.error("Lecture des écarts :", err.message); }
+	ajouter(planningBrut.find((e) => /Réaliser Produit/.test(e.title)));
+	if (!cibles.length) { await ecrireFichier("planning-detail-debug.json", { majLe: new Date().toISOString(), note: "aucun cours avec identifiant", premierCours: planningBrut[0] }, "Planning Lise : sonde (aucun identifiant)"); return; }
+	const { schedId, idInit, vs } = ctxAgenda;
+	const details = [], bruts = [];
+	for (const e of cibles.slice(0, 20)) {
 		try {
-			const { schedId, idInit, vs } = ctxAgenda;
-			if (e.id != null) {
-				const r = await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": schedId, "javax.faces.partial.execute": schedId, "javax.faces.behavior.event": "eventSelect", "javax.faces.partial.event": "eventSelect", [schedId + "_selectedEventId"]: String(e.id), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true);
-				res.statut = r.status;
-				res.reponse = (await r.text()).slice(0, 30000);
-			}
-		} catch (err) { res.erreur = String(err.message || err); }
-		resultats.push(res);
+			const r = await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": schedId, "javax.faces.partial.execute": schedId, "javax.faces.behavior.event": "eventSelect", "javax.faces.partial.event": "eventSelect", [schedId + "_selectedEventId"]: String(e.id), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true);
+			const xml = await r.text();
+			const f = analyserFiche(xml);
+			details.push({ start: e.start, title: e.title, id: e.id, ...f });
+			if (bruts.length < 2) bruts.push({ title: e.title, start: e.start, champs: Object.keys(e), statut: r.status, reponse: xml.slice(0, 30000) });
+		} catch (err) { details.push({ start: e.start, title: e.title, id: e.id, erreur: String(err.message || err) }); }
+		await new Promise((ok) => setTimeout(ok, 1500));
 	}
-	await ecrireFichier("planning-detail-debug.json", { majLe: new Date().toISOString(), premierCours: planningBrut[0], resultats }, "Planning Lise : sonde de la fiche d'un cours");
-	console.log(`Sonde des fiches : ${resultats.length} cours.`);
+	const ancien = (await lireFichier("planning-details.json")).data?.details || [];
+	const cle = (d) => `${d.start}|${d.title}`;
+	const fusion = new Map(ancien.map((d) => [cle(d), d]));
+	for (const d of details) if (!d.erreur && (d.code || d.apprenants != null)) fusion.set(cle(d), d);
+	await ecrireFichier("planning-details.json", { majLe: new Date().toISOString(), details: [...fusion.values()] }, `Fiches Lise : ${details.filter((d) => d.code || d.apprenants != null).length}/${details.length} lues`);
+	await ecrireFichier("planning-detail-debug.json", { majLe: new Date().toISOString(), premierCours: planningBrut[0], resultats: bruts, extraits: details }, "Planning Lise : sonde de la fiche d'un cours");
+	console.log(`Fiches des cours : ${details.length} demandées.`);
 }
 
 async function pageNotes() {
@@ -168,7 +197,7 @@ async function main() {
 	} catch (e) { etat = { ok: false, message: e.message }; console.error("Notes :", e.message); }
 	if (LOCAL_HTML) { console.log(JSON.stringify({ etat, notes }, null, 2)); return; }
 	try { await ecrirePlanningBrut(); } catch (e) { console.error("Planning :", e.message); }
-	try { await sonderDetails(); } catch (e) { console.error("Sonde :", e.message); }
+	try { await recupererDetails(); } catch (e) { console.error("Fiches :", e.message); }
 	const { data: ancien, sha } = await lireNotes();
 	if (!etat.ok) {
 		// On garde les anciennes notes et on signale juste l'échec
