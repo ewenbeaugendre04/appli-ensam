@@ -102,9 +102,9 @@ async function pageNotes() {
 	if (/Connectez-vous|Sign in/i.test(accueil.match(/<title>(.*?)<\/title>/is)?.[1] || "")) throw new Error("Session Lise non ouverte");
 	const vs = champCache(accueil, "javax.faces.ViewState"), idInit = champCache(accueil, "form:idInit");
 	if (!vs || !idInit) throw new Error("Page d'accueil Lise inattendue (champs cachés absents)");
-	const r1 = await (await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt849:j_idt852", "javax.faces.partial.execute": "form:j_idt849:j_idt852", "javax.faces.partial.render": "form:j_idt849:j_idt852", "form:j_idt849:j_idt852": "form:j_idt849:j_idt852", "form:j_idt849:j_idt852_start": String(PLAN_DEBUT), "form:j_idt849:j_idt852_end": String(PLAN_FIN), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true)).text();
-	const extraits = (re, n = 400) => [...accueil.matchAll(re)].slice(0, 12).map((m) => accueil.slice(Math.max(0, m.index - n), m.index + n));
-	planningBrut = JSON.stringify({ r1, schedules: extraits(/Schedule/g, 300), planning: extraits(/planning/gi, 500), titre: accueil.match(/<title>(.*?)<\/title>/is)?.[1] || "" });
+	const schedId = accueil.match(/PrimeFaces\.cw\("Schedule","[^"]+",\{id:"([^"]+)"/)?.[1] || "form:j_idt849:j_idt852";
+	const r1 = await (await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": schedId, "javax.faces.partial.execute": schedId, "javax.faces.partial.render": schedId, [schedId]: schedId, [schedId + "_start"]: String(PLAN_DEBUT), [schedId + "_end"]: String(PLAN_FIN), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true)).text();
+	planningBrut = JSON.stringify({ schedId, r1 });
 	const vs2 = decoder(r1.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1] || r1.match(/<update id="j_id1:javax\.faces\.ViewState:0">([\s\S]*?)<\/update>/)?.[1] || vs);
 	await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt52", "javax.faces.partial.execute": "form:j_idt52", "javax.faces.partial.render": "form:sidebar", "form:j_idt52": "form:j_idt52", "webscolaapp.Sidebar.ID_SUBMENU": MENU_NOTES.submenuId, ...FORM(idInit), "javax.faces.ViewState": vs2 }, true);
 	return (await post({ ...FORM(idInit), "javax.faces.ViewState": vs2, "form:sidebar": "form:sidebar", "form:sidebar_menuid": MENU_NOTES.buttonId }, false)).text();
