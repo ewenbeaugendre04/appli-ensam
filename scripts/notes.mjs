@@ -43,7 +43,7 @@ function retenir(res) {
 	}
 }
 async function requete(url, opts = {}, sauts = 6) {
-	const res = await fetch(url, { ...opts, redirect: "manual", headers: { "User-Agent": UA, "Accept-Language": "fr-FR,fr;q=0.9", Cookie: cookieHeader(), ...(opts.headers || {}) } });
+	const res = await fetch(url, { ...opts, redirect: "manual", signal: AbortSignal.timeout(25000), headers: { "User-Agent": UA, "Accept-Language": "fr-FR,fr;q=0.9", Cookie: cookieHeader(), ...(opts.headers || {}) } });
 	retenir(res);
 	const loc = res.headers.get("location");
 	if (res.status >= 300 && res.status < 400 && loc && sauts > 0 && !opts.pasDeSuivi) return requete(new URL(loc, url).href, { headers: opts.headers }, sauts - 1);

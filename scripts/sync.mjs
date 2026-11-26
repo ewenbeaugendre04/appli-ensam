@@ -281,12 +281,46 @@ export function eventsDepuisSite(webEvents, ical) {
 	}
 	return out.sort((a, b) => a.debut.localeCompare(b.debut));
 }
-// Dans la période couverte par le site, le site fait foi (cours ajoutés, déplacés, supprimés) ; hors période, on garde l'existant.
-export function fusionSite(existants, site) {
-	if (!site.length) return existants;
+// Le lien iCal reste la base. Le planning du site n'est qu'un point de comparaison : les écarts sont écrits dans
+// ecarts.json (pour la notification) et ne sont appliqués que si Ewen les a acceptés (decisions.json → appliques).
+const cleCours = (e) => `${e.debut}|${e.fin}`;
+export function comparerPlanning(base, site, maintenant = Date.now()) {
+	if (!site.length) return [];
 	const lo = site[0].debut, hi = site.reduce((m, e) => (e.fin > m ? e.fin : m), site[0].fin);
-	const dehors = (existants || []).filter((e) => e.fin <= lo || e.debut >= hi);
-	return [...dehors, ...site].sort((a, b) => a.debut.localeCompare(b.debut));
+	const debutAuj = new Date(maintenant - 86400e3).toISOString();
+	const dansLaPeriode = (e) => e.fin > lo && e.debut < hi && e.debut >= debutAuj;
+	const b = base.filter(dansLaPeriode);
+	const sBon = site.filter((e) => e.debut >= debutAuj);
+	const utilises = new Set();
+	const ecarts = [];
+	for (const w of sBon) {
+		const meme = b.find((e) => !utilises.has(e.uid) && cleCours(e) === cleCours(w) && e.uid === w.uid);
+		if (meme) { utilises.add(meme.uid); if ((meme.salle || "") !== (w.salle || "") && w.salle) ecarts.push({ type: "salle", uid: meme.uid, avant: meme, apres: { ...meme, salle: w.salle } }); continue; }
+		const decale = b.find((e) => !utilises.has(e.uid) && e.uid === w.uid);
+		if (decale) { utilises.add(decale.uid); ecarts.push({ type: "horaire", uid: decale.uid, avant: decale, apres: w }); continue; }
+		ecarts.push({ type: "ajout", uid: w.uid, apres: w });
+	}
+	for (const e of b) if (!utilises.has(e.uid)) ecarts.push({ type: "suppression", uid: e.uid, avant: e });
+	const hhmm = (iso) => new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+	const hh = (iso) => new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+	return ecarts.map((x) => {
+		const ref = x.apres || x.avant;
+		const id = `${x.type}:${x.uid}:${(x.apres || x.avant).debut}:${x.apres ? x.apres.fin : ""}:${x.apres?.salle || ""}`;
+		const resume = { ajout: () => `Ajout sur le site : ${ref.titre} (${ref.type}) ${hhmm(ref.debut)}${ref.salle ? ", " + ref.salle : ""}`,
+			suppression: () => `Absent du site : ${ref.titre} (${ref.type}) ${hhmm(ref.debut)}`,
+			horaire: () => `Horaire différent : ${ref.titre} — lien ${hhmm(x.avant?.debut)}–${hh(x.avant?.fin)} → site ${hhmm(x.apres?.debut)}–${hh(x.apres?.fin)}`,
+			salle: () => `Salle différente : ${ref.titre} ${hhmm(ref.debut)} — ${x.avant?.salle || "?"} → ${x.apres?.salle}` }[x.type]();
+		return { id, type: x.type, resume, ...(x.avant ? { avant: x.avant } : {}), ...(x.apres ? { apres: x.apres } : {}) };
+	});
+}
+export function appliquerEcarts(events, ecarts, appliques) {
+	let out = events.slice();
+	for (const x of ecarts.filter((e) => appliques.includes(e.id))) {
+		if (x.type === "suppression") out = out.filter((e) => e.uid !== x.avant.uid);
+		else if (x.type === "ajout") out.push(x.apres);
+		else out = out.map((e) => (e.uid === x.avant.uid ? x.apres : e));
+	}
+	return out.sort((a, b) => a.debut.localeCompare(b.debut));
 }
 
 async function main() {
@@ -311,9 +345,14 @@ async function main() {
 		} else {
 			events = fusionPasse(events, fresh);
 			const web = (await readJson("planning-web.json", { data: null })).data;
-			if (web?.events?.length && Date.now() - Date.parse(web.majLe) < 6 * 3600e3) {
-				events = fusionSite(events, eventsDepuisSite(web.events, fresh));
-				etat = { ok: true, message: "Synchronisé avec le planning du site Lise" };
+			if (web?.events?.length && Date.now() - Date.parse(web.majLe) < 24 * 3600e3) {
+				const site = eventsDepuisSite(web.events, fresh);
+				const ecarts = comparerPlanning(events, site);
+				const dec = (await readJson("decisions.json", { data: { appliques: [], ignores: [] } })).data;
+				const prevEc = await readJson("ecarts.json", { data: null });
+				const ids = ecarts.map((x) => x.id).join();
+				if (!prevEc.data || prevEc.data.ecarts.map((x) => x.id).join() !== ids) await writeJson("ecarts.json", { majLe: new Date().toISOString(), sourceMajLe: web.majLe, ecarts }, prevEc.sha, `Planning : ${ecarts.length} écart(s) avec le site Lise`);
+				events = appliquerEcarts(events, ecarts, dec.appliques || []);
 			}
 		}
 	} catch (err) {
