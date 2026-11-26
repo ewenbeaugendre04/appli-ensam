@@ -1,37 +1,32 @@
 "use strict";
-// Onglet « Écarts » : différences entre le lien iCal de Lise et le site Lise.
-// Chaque écart peut être appliqué ou ignoré ; le choix est écrit dans decisions.json (dépôt de données),
-// puis la synchro est relancée (voir relancerSynchro dans app.js) : scripts/sync.mjs applique les écarts acceptés
-// à events.json et au calendrier .ics. L'agenda affiche deux colonnes (ICS / Lise) les jours concernés.
+// Écarts entre le lien iCal de Lise (base de l'appli) et le site Lise.
+// - Chaque écart peut être appliqué ou ignoré ; le choix est écrit dans decisions.json (dépôt de données),
+//   puis la synchro est relancée (relancerSynchro dans app.js) : scripts/sync.mjs applique les écarts acceptés
+//   à events.json et au calendrier .ics.
+// - L'agenda affiche deux demi-colonnes (Std = lien iCal, Lise = site) les jours concernés.
+// - L'onglet « Écarts » est dessiné par ecarts-infos.js ; le choix de la bonne version par ecarts-choix.js.
 
 (function () {
 	const DEC0 = { appliques: [], ignores: [] };
 	const style = document.createElement("style");
 	style.textContent = `
+:root{--ec-std:#2f6fb0;--ec-lise:#d9822b}
 .accueil-haut .pastilles{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;flex:none}
 .accueil-haut .date-jour{min-width:0}
 .pastille-ecarts{padding:6px 10px 6px 8px}
-.ecart{padding:12px 0;border-bottom:1px solid rgba(0,0,0,.08)}
-.ecart:last-child{border-bottom:0}
-.ecart .ec-type{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:2px 7px;margin-bottom:4px;background:#eee}
-.ecart .ec-ajout{background:#dff3e3;color:#1c6b2f}
-.ecart .ec-horaire{background:#fff0d6;color:#8a5a00}
-.ecart .ec-suppression{background:#fbe0e0;color:#9b1c1c}
-.ecart .ec-actions{display:flex;gap:8px;margin-top:8px}
 .ec-tete{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
-.ec-diff{margin-top:6px;border-radius:12px;background:var(--fond-2,#eee);padding:8px 10px;font-size:14px;display:grid;gap:6px}
-.ec-l{display:grid;grid-template-columns:70px 1fr;gap:8px;align-items:baseline}
-.ec-l>span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--doux,#777)}
-.ec-l.vide>div{color:var(--doux,#777);font-style:italic}
-.ec-ch{background:rgba(255,200,0,.35);border-radius:4px;padding:0 3px;font-weight:600}
-.ec-sub{display:grid;grid-template-columns:1fr 1fr;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
-.ec-sub i{font-style:normal;color:var(--doux,#777)}
-.ec-sub i:last-child{color:var(--accent,#8a1c2c)}
 .ag-tete.split{border-left:1px solid var(--ligne,#ddd)}
-.ag-col.ec-lise{background-color:color-mix(in srgb,var(--accent,#8a1c2c) 6%,transparent)}
-.ag-col.ec-ics{border-left:1px solid var(--ligne,#ddd)}
-.ag-col.ec-ics + .ag-col.ec-lise{border-left:1px dashed var(--ligne,#ccc)}
-.ag-cours.ec-d{outline:2px dashed #d99a00;outline-offset:-2px}
+.ec-sub{display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-top:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.ec-sub i{font-style:normal;color:#fff!important;border-radius:4px;padding:2px 0;text-align:center;font-size:8px;letter-spacing:0;overflow:hidden;text-overflow:clip;white-space:nowrap}
+.ec-sub i:first-child{background:var(--ec-std)}
+.ec-sub i:last-child{background:var(--ec-lise)}
+.ag-col.ec-ics{background-color:color-mix(in srgb,var(--ec-std) 9%,transparent);border-left:2px solid var(--ec-std)}
+.ag-col.ec-lise{background-color:color-mix(in srgb,var(--ec-lise) 11%,transparent);border-left:2px solid var(--ec-lise)}
+.ag-col.ec-ics .ag-cours{box-shadow:inset 0 3px 0 var(--ec-std)}
+.ag-col.ec-lise .ag-cours{box-shadow:inset 0 3px 0 var(--ec-lise)}
+.ag-cours.ec-d{outline-offset:-2px}
+.ag-col.ec-ics .ag-cours.ec-d{outline:2px dashed var(--ec-std)}
+.ag-col.ec-lise .ag-cours.ec-d{outline:2px dashed var(--ec-lise)}
 .ag-semaine.avec-ecarts .ag-cours{font-size:9.5px}
 `;
 	document.head.appendChild(style);
@@ -42,25 +37,6 @@
 		const decides = new Set([...(d.appliques || []), ...(d.ignores || [])]);
 		const debutJour = auj();
 		return ((S.data.ecarts || {}).ecarts || []).filter((e) => !decides.has(e.id) && (!debutEcart(e) || jourCle(debutEcart(e)) >= debutJour));
-	}
-	const LIBELLE = { ajout: "Ajout", horaire: "Horaire", suppression: "Absent du site" };
-
-	// Lignes « lien iCal » et « site » d'un écart, avec les champs différents mis en évidence
-	function diff(e) {
-		const champs = (c) => c ? {
-			jour: fmt(c.debut, { weekday: "short", day: "numeric", month: "numeric" }),
-			horaire: c.journee ? "journée" : `${heure(c.debut)}–${heure(c.fin)}`,
-			titre: `${c.titre || c.module || "—"}${c.type ? ` (${c.type})` : ""}`,
-			salle: c.salle || "—",
-		} : null;
-		const a = champs(e.avant), b = champs(e.apres);
-		const ligne = (nom, f, autre) => {
-			if (!f) return `<div class="ec-l vide"><span>${nom}</span><div>absent</div></div>`;
-			const v = (k) => { const t = h(f[k]); return autre && autre[k] !== f[k] ? `<span class="ec-ch">${t}</span>` : t; };
-			return `<div class="ec-l"><span>${nom}</span><div>${v("jour")} · ${v("horaire")} · ${v("titre")} · ${v("salle")}</div></div>`;
-		};
-		const both = a && b;
-		return `<div class="ec-diff">${ligne("Lien iCal", a, both ? b : null)}${ligne("Site Lise", b, both ? a : null)}</div>`;
 	}
 
 	async function chargerEcarts() {
@@ -87,16 +63,6 @@
 	}
 
 	TITRES.ecarts = "Écarts";
-	VUES.ecarts = function () {
-		const liste = enAttente();
-		const maj = (S.data.ecarts || {}).majLe;
-		const carte = (e) => `<div class="ecart"><span class="ec-type ec-${h(e.type)}">${h(LIBELLE[e.type] || e.type)}</span>
-			${diff(e)}
-			<div class="ec-actions"><button class="bouton plein petit-b" data-ec-app="${h(e.id)}">Appliquer</button><button class="bouton petit-b" data-ec-ign="${h(e.id)}">Ignorer</button></div></div>`;
-		return `<section class="carte"><h2>Planning : lien Lise ≠ site Lise</h2>
-			<p class="petit">Le site Lise est en général plus à jour que le lien iCal (surtout pour les partiels). Rien n'est modifié sans ton accord. Un écart appliqué est ajouté à ton calendrier à la prochaine synchro (1 à 2 minutes).${maj ? ` Vérifié ${h(fmt(maj, { weekday: "short", hour: "2-digit", minute: "2-digit" }))}.` : ""}</p>
-			${liste.length ? `<div class="ec-tete"><button class="bouton plein petit-b" data-ec-tout="app">Tout appliquer (${liste.length})</button><button class="bouton petit-b" data-ec-tout="ign">Tout ignorer</button></div>${liste.map(carte).join("")}` : '<p class="vide">Aucun écart à traiter.</p>'}</section>`;
-	};
 
 	const accueilOrig = VUES.accueil;
 	VUES.accueil = function () {
@@ -138,6 +104,19 @@
 		return { ics, lise };
 	}
 
+	// Place des cours triés par début dans des « voies » côte à côte quand ils se chevauchent :
+	// place[i] = voie du cours i ; groupes[i] = nombre de voies partagées avec lui (donne sa largeur).
+	function placerEnVoies(evs) {
+		const voies = [];
+		const place = evs.map((e) => {
+			let v = voies.findIndex((fin) => fin <= e.debut);
+			if (v < 0) { v = voies.length; voies.push(e.fin); } else voies[v] = e.fin;
+			return v;
+		});
+		const groupes = evs.map((e) => Math.max(1, ...evs.filter((x) => x.debut < e.fin && x.fin > e.debut).map((x) => place[evs.indexOf(x)] + 1)));
+		return { place, groupes };
+	}
+
 	window.grilleSemaine = function (debutSem, parJour, tachesJour) {
 		const aujC = auj();
 		const separes = joursAvecEcarts();
@@ -168,7 +147,7 @@
 		const minNow = minutesParis(new Date().toISOString());
 		const tete = unites.map((u) => {
 			const d = new Date(u.c + "T12:00:00Z");
-			return `<div class="ag-tete ${u.c === aujC ? "auj" : ""} ${u.split ? "split" : ""}" style="${u.split ? "grid-column:span 2" : ""}"><span>${h(fmt(d, { weekday: "short" }).replace(".", ""))}</span><b>${fmt(d, { day: "numeric" })}</b>${u.split ? '<div class="ec-sub"><i>ICS</i><i>Lise</i></div>' : ""}</div>`;
+			return `<div class="ag-tete ${u.c === aujC ? "auj" : ""} ${u.split ? "split" : ""}" style="${u.split ? "grid-column:span 2" : ""}"><span>${h(fmt(d, { weekday: "short" }).replace(".", ""))}</span><b>${fmt(d, { day: "numeric" })}</b>${u.split ? '<div class="ec-sub"><i>Std</i><i>Lise</i></div>' : ""}</div>`;
 		}).join("");
 		const haut = unites.map((u) => {
 			const source = u.split ? u.cols[1].evs : u.cols[0].evs;
@@ -180,9 +159,7 @@
 		const colonne = (u, col) => {
 			const c = u.c;
 			const evs = col.evs.filter((e) => !e.journee).sort((a, b) => a.debut.localeCompare(b.debut));
-			const voies = [];
-			const place = evs.map((e) => { let v = voies.findIndex((fin) => fin <= e.debut); if (v < 0) { v = voies.length; voies.push(e.fin); } else voies[v] = e.fin; return v; });
-			const groupes = evs.map((e) => Math.max(1, ...evs.filter((x) => x.debut < e.fin && x.fin > e.debut).map((x) => place[evs.indexOf(x)] + 1)));
+			const { place, groupes } = placerEnVoies(evs);
 			const blocs = evs.map((e, i) => {
 				const top = y(minutesParis(e.debut)), haut = Math.max(18, y(minutesParis(e.fin) || 24 * 60) - top);
 				const d = Date.parse(e.debut), f = Date.parse(e.fin);
@@ -209,15 +186,13 @@
 	${Object.values(parJour).flat().length || unites.some((u) => u.split) ? "" : '<p class="vide" style="margin-top:14px">Aucun cours cette semaine.</p>'}`;
 	};
 
+	// « Tout appliquer / Tout ignorer » (data-ec-tout) est géré par ecarts-infos.js, qui exclut les cours suspects
 	document.addEventListener("click", (e) => {
-		const el = e.target.closest("[data-ec-app],[data-ec-ign],[data-ec-tout]");
+		const el = e.target.closest("[data-ec-app],[data-ec-ign]");
 		if (!el) return;
 		const d = el.dataset;
 		if (d.ecApp) return decider([d.ecApp], "appliques", "Écart appliqué");
 		if (d.ecIgn) return decider([d.ecIgn], "ignores", "Écart ignoré");
-		const ids = enAttente().map((x) => x.id);
-		if (d.ecTout === "app") return decider(ids, "appliques", "Écarts appliqués");
-		if (d.ecTout === "ign") return decider(ids, "ignores", "Écarts ignorés");
 	});
 
 	document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") chargerEcarts(); });
