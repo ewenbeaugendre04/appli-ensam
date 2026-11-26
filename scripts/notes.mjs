@@ -89,10 +89,10 @@ async function ecrirePlanningBrut() {
 	if (!planningBrut || !TOKEN) return;
 	const r = await gh("planning-web.json");
 	const sha = r.ok ? (await r.json()).sha : null;
-	const body = { message: "Planning Lise (site) : réponse brute", content: Buffer.from(JSON.stringify({ majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, brut: planningBrut }, null, 2) + "\n").toString("base64"), committer: { name: "Appli ENSAM", email: "appli-ensam@users.noreply.github.com" } };
+	const body = { message: "Planning Lise (site) : réponse brute", content: Buffer.from(JSON.stringify({ majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, events: planningBrut }, null, 2) + "\n").toString("base64"), committer: { name: "Appli ENSAM", email: "appli-ensam@users.noreply.github.com" } };
 	if (sha) body.sha = sha;
 	const w = await gh("planning-web.json", { method: "PUT", body: JSON.stringify(body) });
-	console.log(`Planning du site : ${planningBrut.length} caractères, écriture ${w.status}`);
+	console.log(`Planning du site : ${planningBrut.length} cours, écriture ${w.status}`);
 }
 
 async function pageNotes() {
@@ -104,7 +104,8 @@ async function pageNotes() {
 	if (!vs || !idInit) throw new Error("Page d'accueil Lise inattendue (champs cachés absents)");
 	const schedId = accueil.match(/PrimeFaces\.cw\("Schedule","[^"]+",\{id:"([^"]+)"/)?.[1] || "form:j_idt849:j_idt852";
 	const r1 = await (await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": schedId, "javax.faces.partial.execute": schedId, "javax.faces.partial.render": schedId, [schedId]: schedId, [schedId + "_start"]: String(PLAN_DEBUT), [schedId + "_end"]: String(PLAN_FIN), ...FORM(idInit), "form:largeurDivCenter": "", "javax.faces.ViewState": vs }, true)).text();
-	planningBrut = JSON.stringify({ schedId, r1 });
+	const cdata = r1.match(/<!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1];
+	try { const evs = JSON.parse(cdata).events; if (Array.isArray(evs) && evs.length) planningBrut = evs.map(({ title, start, end, className }) => ({ title, start, end, type: className })); } catch { /* format inattendu : on garde le lien iCal */ }
 	const vs2 = decoder(r1.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1] || r1.match(/<update id="j_id1:javax\.faces\.ViewState:0">([\s\S]*?)<\/update>/)?.[1] || vs);
 	await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt52", "javax.faces.partial.execute": "form:j_idt52", "javax.faces.partial.render": "form:sidebar", "form:j_idt52": "form:j_idt52", "webscolaapp.Sidebar.ID_SUBMENU": MENU_NOTES.submenuId, ...FORM(idInit), "javax.faces.ViewState": vs2 }, true);
 	return (await post({ ...FORM(idInit), "javax.faces.ViewState": vs2, "form:sidebar": "form:sidebar", "form:sidebar_menuid": MENU_NOTES.buttonId }, false)).text();

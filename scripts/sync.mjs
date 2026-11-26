@@ -252,6 +252,43 @@ export function fusionPasse(anciens, fresh) {
 	return [...passes, ...fresh].sort((a, b) => a.debut.localeCompare(b.debut));
 }
 
+// ---------- Planning du site Lise (plus à jour que le lien iCal) ----------
+// notes.mjs enregistre dans planning-web.json les cours de l'agenda du site (connexion avec le mot de passe).
+// Titre du site : « SALLE - début - fin - Module - Type - [activité - ] intervenants - durée - - groupes ».
+const TYPES_WEB = "CM|ED_TD|TPS|TD|TP|TEST|EXAMEN|REUNION|PROJET|TRAVAIL_AUTONOME";
+export function eventsDepuisSite(webEvents, ical) {
+	const utilises = new Set();
+	const out = [];
+	for (const w of webEvents) {
+		const debut = new Date(w.start).toISOString(), fin = new Date(w.end).toISOString();
+		const m = w.title.match(new RegExp(`^(.*?) - (\\d\\d:\\d\\d) - (\\d\\d:\\d\\d) - (.+?) - (${TYPES_WEB}) - (.*?)(?: - (\\d+h\\d*))? - (.*)$`));
+		const salle = m ? m[1].trim() : "";
+		const module = m ? m[4].trim() : "";
+		const typeRaw = (m ? m[5] : w.type) || "";
+		const reste = m ? m[6] : "";
+		const profs = reste.replace(/^\s*-\s*/, "").replace(/\s*-\s*$/, "").trim();
+		const groupes = m ? (m[8].match(/FITE[^-]*|FIP[^-]*/)?.[0] || "").trim() : "";
+		const libre = (e) => !utilises.has(e.uid) && (!module || e.module === module);
+		const exact = ical.find((e) => libre(e) && e.debut === debut && e.fin === fin);
+		if (exact) { utilises.add(exact.uid); out.push(exact); continue; }
+		// Même module le même jour mais horaire corrigé sur le site : on garde l'identifiant (les partiels Lise y sont attachés)
+		const proche = ical.filter((e) => libre(e) && e.debut.slice(0, 10) === debut.slice(0, 10) && e.type === (TYPE_LABELS[typeRaw] || typeRaw))
+			.sort((a, b) => Math.abs(Date.parse(a.debut) - Date.parse(debut)) - Math.abs(Date.parse(b.debut) - Date.parse(debut)))[0];
+		if (proche) { utilises.add(proche.uid); out.push({ ...proche, debut, fin, salle: salle || proche.salle, profs: profs || proche.profs }); continue; }
+		const titre = module || "Cours";
+		const examen = typeRaw === "EXAMEN" || typeRaw === "TEST" || /\b(partiel|examen|contr[ôo]le|interro)\b/i.test(titre);
+		out.push({ uid: `web-${debut}-${titre}`.replace(/\s+/g, "_"), titre, module, code: "", type: TYPE_LABELS[typeRaw] || typeRaw, examen, debut, fin, journee: false, salle, profs, groupes });
+	}
+	return out.sort((a, b) => a.debut.localeCompare(b.debut));
+}
+// Dans la période couverte par le site, le site fait foi (cours ajoutés, déplacés, supprimés) ; hors période, on garde l'existant.
+export function fusionSite(existants, site) {
+	if (!site.length) return existants;
+	const lo = site[0].debut, hi = site.reduce((m, e) => (e.fin > m ? e.fin : m), site[0].fin);
+	const dehors = (existants || []).filter((e) => e.fin <= lo || e.debut >= hi);
+	return [...dehors, ...site].sort((a, b) => a.debut.localeCompare(b.debut));
+}
+
 async function main() {
 	if (!TOKEN && !LOCAL_ICS) throw new Error("Secret DATA_TOKEN manquant");
 	const cfg = await readJson("config.json", { data: {} });
@@ -271,7 +308,14 @@ async function main() {
 		const fresh = normaliseLise(raw);
 		if (fresh.length === 0 && events.length > 0) {
 			etat = { ok: false, message: "Lise a renvoyé un calendrier vide : ancienne version conservée" };
-		} else events = fusionPasse(events, fresh);
+		} else {
+			events = fusionPasse(events, fresh);
+			const web = (await readJson("planning-web.json", { data: null })).data;
+			if (web?.events?.length && Date.now() - Date.parse(web.majLe) < 6 * 3600e3) {
+				events = fusionSite(events, eventsDepuisSite(web.events, fresh));
+				etat = { ok: true, message: "Synchronisé avec le planning du site Lise" };
+			}
+		}
 	} catch (err) {
 		etat = { ok: false, message: `Lise injoignable (${err.message}) : ancienne version conservée` };
 		console.log(`::warning title=Lise::${etat.message}`);
