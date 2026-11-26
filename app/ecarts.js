@@ -7,10 +7,9 @@
 	const DEC0 = { appliques: [], ignores: [] };
 	const style = document.createElement("style");
 	style.textContent = `
-.accueil-haut .pastilles{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.pastille-ecarts{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--carte,#fff);border:1px solid rgba(122,31,43,.25);color:#7a1f2b;font-weight:600;font-size:14px;text-decoration:none}
-.pastille-ecarts svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.pastille-ecarts b{background:#7a1f2b;color:#fff;border-radius:999px;font-size:12px;padding:1px 7px}
+.accueil-haut .pastilles{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;flex:none}
+.accueil-haut .date-jour{min-width:0}
+.pastille-ecarts{padding:6px 10px 6px 8px}
 .ecart{padding:12px 0;border-bottom:1px solid rgba(0,0,0,.08)}
 .ecart:last-child{border-bottom:0}
 .ecart .ec-type{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:2px 7px;margin-bottom:4px;background:#eee}
@@ -70,7 +69,7 @@
 	VUES.accueil = function () {
 		const html = accueilOrig();
 		const n = enAttente().length;
-		const pastille = `<a href="#ecarts" class="pastille-ecarts" aria-label="Écarts de planning${n ? ` (${n})` : ""}"><svg viewBox="0 0 24 24"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>Écarts${n ? `<b>${n}</b>` : ""}</a>`;
+		const pastille = `<a href="#ecarts" class="pastille-notes pastille-ecarts" aria-label="Écarts de planning${n ? ` (${n})` : ""}"><svg viewBox="0 0 24 24"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>Écarts${n ? `<b>${n}</b>` : ""}</a>`;
 		return html.replace(/<a href="#notes"[\s\S]*?<\/a>/, (m) => `<span class="pastilles">${pastille}${m}</span>`);
 	};
 
