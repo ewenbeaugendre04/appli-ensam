@@ -3,8 +3,10 @@
 //    et qui ne sont pas encore dans events.json : on les ajoute en mémoire le temps du clic.
 // 2) Les évaluations (examen) ajoutées sur le site sont aussi listées dans les partiels.
 // 3) Débat = un cours du lien iCal et un cours du site (uid « web-… ») qui se chevauchent dans events.json.
-//    On coche alors le cours effectif (fiche du cours) ; seuls les cours cochés ou sans débat comptent
-//    dans la liste de l'accueil et le total d'heures. Le choix est gardé dans choix.json (dépôt de données).
+//    Sans choix : tous les cours du débat sont en pointillé dans l'agenda et comptent dans les listes.
+//    On coche le cours retenu depuis sa fiche : il passe en trait plein et gras, l'autre reste en pointillé
+//    (estompé) dans l'agenda et disparaît de la liste de l'accueil et du total d'heures.
+//    On peut décocher / recocher à tout moment. Le choix est gardé dans choix.json (dépôt de données).
 (function () {
 	const SEL = "[data-cours],[data-tache-cours],[data-partiel-cours]";
 	function chercher(uid) {
@@ -65,17 +67,25 @@
 		return groupes.filter((g) => g.length > 1 && g.some(estWeb) && g.some((e) => !estWeb(e)));
 	}
 	const enDebat = (uid) => debats(S.data.events && S.data.events.events).find((g) => g.some((e) => e.uid === uid)) || null;
+	// Cours à compter dans les listes : sans choix, tous ; avec un choix, seul le cours retenu du débat
 	function effectifs(liste) {
 		const sel = choisis();
 		const exclus = new Set();
-		for (const g of debats(liste)) for (const e of g) if (!sel.has(e.uid)) exclus.add(e.uid);
+		for (const g of debats(liste)) {
+			if (!g.some((e) => sel.has(e.uid))) continue;
+			for (const e of g) if (!sel.has(e.uid)) exclus.add(e.uid);
+		}
 		return (liste || []).filter((e) => !exclus.has(e.uid));
 	}
 
 	const style = document.createElement("style");
 	style.textContent = `
-.ag-cours.deb-non{opacity:.45;outline:2px dashed #b3261e;outline-offset:-2px}
-.ag-cours.deb-oui{outline:2px solid #1c6b2f;outline-offset:-2px}
+.ag-cours.deb-inc{outline:2px dashed currentColor;outline-offset:-2px}
+.ag-col.ec-ics .ag-cours.deb-inc.ec-d{outline:2px dashed var(--ec-std,currentColor)}
+.ag-col.ec-lise .ag-cours.deb-inc.ec-d{outline:2px dashed var(--ec-lise,currentColor)}
+.ag-cours.deb-non,.ag-col.ec-ics .ag-cours.deb-non.ec-d,.ag-col.ec-lise .ag-cours.deb-non.ec-d{opacity:.5;outline:2px dashed currentColor;outline-offset:-2px}
+.ag-cours.deb-oui,.ag-col.ec-ics .ag-cours.deb-oui.ec-d,.ag-col.ec-lise .ag-cours.deb-oui.ec-d{opacity:1;outline:3px solid currentColor;outline-offset:-3px}
+.ag-cours.deb-oui .ag-t,.ag-cours.deb-oui .ag-h{font-weight:800}
 .effectif{margin-top:12px;border-radius:12px;background:rgba(255,200,0,.22);padding:10px 12px}
 .effectif label{display:flex;gap:10px;align-items:center;font-weight:600}
 .effectif .petit{margin-top:4px}
@@ -93,20 +103,23 @@
 		};
 	}
 
-	// Agenda : cours en débat marqués (vert = effectif, rouge pointillé = non retenu)
+	// Agenda : cours en débat tous en pointillé tant qu'aucun n'est choisi ; le retenu passe en plein et gras
 	const grilleOrig = window.grilleSemaine;
 	if (typeof grilleOrig === "function") {
 		window.grilleSemaine = function (...args) {
 			const html = grilleOrig.apply(this, args);
 			const sel = choisis();
 			const marque = new Map();
-			for (const g of debats(S.data.events && S.data.events.events)) for (const e of g) marque.set(String(e.uid), sel.has(e.uid) ? "deb-oui" : "deb-non");
+			for (const g of debats(S.data.events && S.data.events.events)) {
+				const decide = g.some((e) => sel.has(e.uid));
+				for (const e of g) marque.set(String(e.uid), sel.has(e.uid) ? "deb-oui" : decide ? "deb-non" : "deb-inc");
+			}
 			if (!marque.size) return html;
 			return html.replace(/<button class="ag-cours ([^"]*)"([^>]*?)data-cours="([^"]*)"/g, (m, cls, mid, u) => marque.has(u) ? `<button class="ag-cours ${cls} ${marque.get(u)}"${mid}data-cours="${u}"` : m);
 		};
 	}
 
-	// Accueil : seulement les cours cochés ou sans débat
+	// Accueil : sans choix tous les cours du débat, avec un choix seulement le retenu
 	const accueilOrig = VUES.accueil;
 	VUES.accueil = function () {
 		const ev = S.data.events;
@@ -116,7 +129,7 @@
 		try { return accueilOrig.apply(this, arguments); } finally { S.data.events = original; }
 	};
 
-	// Fiche du cours : case « cours effectif » seulement quand il y a débat
+	// Fiche du cours : case « Garder ce cours » seulement quand il y a débat
 	const detailOrig = window.detailCours;
 	if (typeof detailOrig === "function") {
 		window.detailCours = function (e) {
@@ -127,8 +140,8 @@
 			const autres = g.filter((x) => x.uid !== e.uid).map((x) => `${x.titre} (${estWeb(x) ? "site Lise" : "lien iCal"}) ${heure(x.debut)}–${heure(x.fin)}`).join(" ; ");
 			const bloc = document.createElement("div");
 			bloc.className = "effectif";
-			bloc.innerHTML = `<label><input type="checkbox" class="coche" data-effectif="${h(e.uid)}" ${choisis().has(e.uid) ? "checked" : ""}> Cours effectif</label>
-				<div class="petit">Ce créneau chevauche ${h(autres)}. Coche celui qui a vraiment lieu : lui seul compte dans le total d'heures et l'accueil.</div>`;
+			bloc.innerHTML = `<label><input type="checkbox" class="coche" data-effectif="${h(e.uid)}" ${choisis().has(e.uid) ? "checked" : ""}> Garder ce cours (${estWeb(e) ? "site Lise" : "lien iCal"})</label>
+				<div class="petit">Ce créneau chevauche ${h(autres)}. Coche celui qui a vraiment lieu : il passe en trait plein, l'autre reste en pointillé et ne compte plus dans la liste de l'accueil ni le total d'heures. Tant que rien n'est coché, les deux comptent. Tu peux décocher à tout moment.</div>`;
 			const actions = corps.querySelector(".actions");
 			if (actions) actions.before(bloc); else corps.appendChild(bloc);
 		};
