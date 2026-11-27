@@ -574,6 +574,7 @@ const VUES = {
 				<p class="petit">Les cours marqués ❓ sont ceux où le lien iCal et le site Lise ne sont pas d'accord et que tu n'as pas encore tranchés dans l'agenda.</p>
 				<div class="code-lien">${h(lien)}</div>
 				<button class="bouton" style="margin-top:8px" data-copier="${h(lien)}">Copier le lien</button>` : '<p class="vide">Lien pas encore disponible.</p>'}
+				${blocNetlify((cfg.netlify || {}).groupe2)}
 			</section>
 
 			${carteGroupes(cfg, base)}
@@ -589,6 +590,15 @@ const VUES = {
 		</div>`;
 	},
 };
+
+// Lien Netlify (adresse lisible) d'un calendrier, avec abonnement et copie
+function blocNetlify(url) {
+	if (!url) return '<p class="petit" style="margin-top:10px">Lien Netlify : en cours de création (quelques minutes)…</p>';
+	return `<div class="netlify-bloc"><p class="petit"><b>Lien Netlify</b> (adresse lisible, mêmes cours) :</p>
+		<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(url.replace(/^https?:/, "webcal:"))}">S'abonner (Netlify)</a>
+		<div class="code-lien">${h(url)}</div>
+		<button class="bouton" style="margin-top:8px" data-copier="${h(url)}">Copier le lien Netlify</button></div>`;
+}
 
 // Calendrier d'un camarade d'un autre groupe : son numéro étudiant ici, son mot de passe dans un secret GitHub
 function carteGroupes(cfg, base) {
@@ -606,6 +616,7 @@ function carteGroupes(cfg, base) {
 		<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
 		<div class="code-lien">${h(lien)}</div>
 		<button class="bouton" style="margin-top:8px" data-copier="${h(lien)}">Copier le lien</button>
+		${blocNetlify((cfg.netlify || {}).groupe1)}
 		<p class="petit" style="margin-top:8px">Site Lise du camarade : ${etat ? `${etat.ok ? "✅" : "⚠️"} ${h(etat.message)}` : "pas encore lu"}</p>
 		<details class="petit"><summary>Ajouter aussi son emploi du temps du site Lise</summary>
 		<p>Le site Lise est parfois plus à jour que le lien iCal. Pour le lire, il faut son mot de passe Lise, <strong>avec son accord</strong> : il n'est jamais écrit dans l'appli ni dans les données.</p>

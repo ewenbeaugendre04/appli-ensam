@@ -61,6 +61,14 @@ jobs:
           OUT_DIR: _site
         run: node scripts/sync.mjs
 
+      - name: Publier les calendriers sur Netlify
+        continue-on-error: true
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPO: ${{ github.repository_owner }}/appli-ensam-data
+        run: node scripts/netlify.mjs
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

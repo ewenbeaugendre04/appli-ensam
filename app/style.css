@@ -430,3 +430,4 @@ code.ic { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background
   .ag-cours, .ag-puce { font-size: 12px; } .ag-h, .ag-s { font-size: 11px; } .ag-heure { font-size: 11px; }
 }
 .lien-discret { background: none; border: 0; padding: 4px; font-size: 11px; color: var(--texte-2, #888); text-decoration: underline; cursor: pointer; }
+.netlify-bloc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ligne, #ddd); }

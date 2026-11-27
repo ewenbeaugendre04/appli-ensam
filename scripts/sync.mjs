@@ -431,13 +431,19 @@ async function main() {
 	const mesCours = appliquerChoix(moi.events, moi.ecarts, choix, decisions);
 	const partielsPartages = partiels.map(({ description, note, ...p }) => p); // sans tes notes personnelles
 	await writeFile(`${OUT_DIR}/cal/${config.icsName}.ics`, buildIcs({ events: mesCours, tasks: [], partiels: partielsPartages, nom: config.nomCalendrier || `ENSAM ${config.groupe || ""}`.trim() }));
+	// Copies pour Netlify (adresses lisibles) : groupe2.ics = toi, groupe1.ics = camarade
+	await mkdir("netlify-out", { recursive: true });
+	await writeFile("netlify-out/_headers", "/*.ics\n  Content-Type: text/calendar; charset=utf-8\n  Cache-Control: no-cache\n  Access-Control-Allow-Origin: *\n");
+	await writeFile(`netlify-out/${config.netlifyMoi || "groupe2"}.ics`, buildIcs({ events: mesCours, tasks: [], partiels: partielsPartages, nom: "ENSAM groupe 2" }));
 	console.log(`OK : ${mesCours.length} cours (${mesCours.filter((e) => e.doute).length} à confirmer), ${partiels.length} partiels, aucune tâche. ${moi.etat.message}`);
 
 	// Camarades d'autres groupes (Réglages → Calendriers des groupes)
 	for (const g of config.groupes || []) {
 		if (!g.liseId || !g.icsName || !g.id) continue;
 		const r = await synchroniser({ liseId: g.liseId, dossier: `groupes/${g.id}/` });
-		await writeFile(`${OUT_DIR}/cal/${g.icsName}.ics`, buildIcs({ events: r.events, tasks: [], partiels: [], nom: `ENSAM ${g.nom || g.id}` }));
+		const icsG = buildIcs({ events: r.events, tasks: [], partiels: [], nom: `ENSAM ${g.nom || g.id}` });
+		await writeFile(`${OUT_DIR}/cal/${g.icsName}.ics`, icsG);
+		await writeFile(`netlify-out/${g.id === "g1" ? "groupe1" : g.id}.ics`, icsG);
 		console.log(`Groupe ${g.nom || g.id} : ${r.events.length} cours (${r.events.filter((e) => e.doute).length} à confirmer). ${r.etat.message}`);
 	}
 }
