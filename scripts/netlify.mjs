@@ -73,6 +73,17 @@ async function main() {
 	}
 	const url = `${base}/${ics}`;
 	console.log(`Calendrier cours publié : ${url}`);
+	// Vérification : le fichier doit répondre en 200, en text/calendar, et commencer par BEGIN:VCALENDAR
+	for (let i = 0; i < 6; i++) {
+		const etat = await (await nf(`/deploys/${dep.id}`)).json();
+		if (etat.state === "ready" || etat.state === "error") { console.log(`Déploiement Netlify : ${etat.state}${etat.error_message ? " — " + etat.error_message : ""}`); break; }
+		await new Promise((r) => setTimeout(r, 2000));
+	}
+	try {
+		const r = await fetch(url, { cache: "no-store" });
+		const t = await r.text();
+		console.log(`Vérification : HTTP ${r.status}, ${r.headers.get("content-type")}, début « ${t.slice(0, 40).replace(/\s+/g, " ")} »`);
+	} catch (e) { console.log(`Vérification impossible : ${e.message}`); }
 	await retenirAdresse(url);
 }
 
