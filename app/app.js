@@ -566,6 +566,7 @@ const VUES = {
 		const cfg = S.data.config;
 		const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/?$/, "/");
 		const lien = cfg.icsName ? `${base}cal/${cfg.icsName}.ics` : "";
+		const lienCours = cfg.icsCours ? `${base}cal/${cfg.icsCours}.ics` : lien.replace(/\.ics$/, "-cours.ics");
 		return `<div class="grille deux">
 			<section class="carte"><h2>Calendrier Apple</h2>
 				${lien ? `<p>Abonne-toi une fois sur chaque appareil : cours Lise, partiels et tâches s'y mettent à jour toutes les heures.</p>
@@ -576,9 +577,9 @@ const VUES = {
 			</section>
 			${lien ? `<section class="carte"><h2>Calendrier « cours seulement »</h2>
 				<p>Cours et partiels, <b>sans tes tâches</b>, avec tes choix iCal / Lise appliqués. Un cours encore à trancher apparaît en double, précédé de ❓.</p>
-				<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/\.ics$/, "-cours.ics").replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
-				<div class="code-lien">${h(lien.replace(/\.ics$/, "-cours.ics"))}</div>
-				<button class="bouton" style="margin-top:8px" data-copier="${h(lien.replace(/\.ics$/, "-cours.ics"))}">Copier le lien</button>
+				<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lienCours.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
+				<div class="code-lien">${h(lienCours)}</div>
+				<button class="bouton" style="margin-top:8px" data-copier="${h(lienCours)}">Copier le lien</button>
 				<p class="petit">Mis à jour toutes les heures. Si tu t'abonnes aux deux calendriers, les cours apparaîtront deux fois : garde l'un ou l'autre.</p>
 			</section>` : ""}
 			<section class="carte"><h2>Synchronisation</h2>

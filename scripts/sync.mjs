@@ -414,7 +414,10 @@ async function main() {
 	const choix = (await readJson("choix.json", { data: { effectifs: [], versions: {} } })).data;
 	const decisions = (await readJson("decisions.json", { data: { appliques: [], ignores: [] } })).data;
 	const coursChoisis = appliquerChoix(events, ecartsCourants, choix, decisions);
-	await writeFile(`${OUT_DIR}/cal/${config.icsName}-cours.ics`, buildIcs({ events: coursChoisis, tasks: [], partiels, nom: (config.nomCalendrier || "ENSAM") + " · cours" }));
+	const icsCours = buildIcs({ events: coursChoisis, tasks: [], partiels, nom: (config.nomCalendrier || "ENSAM") + " · cours" });
+	// Adresse lisible choisie dans config.json (icsCours) ; l'ancienne adresse reste servie pour les abonnements déjà faits
+	await writeFile(`${OUT_DIR}/cal/${config.icsName}-cours.ics`, icsCours);
+	if (config.icsCours) await writeFile(`${OUT_DIR}/cal/${String(config.icsCours).replace(/[^\w.-]/g, "")}.ics`, icsCours);
 	console.log(`Calendrier cours : ${coursChoisis.length} cours (${coursChoisis.filter((e) => e.doute).length} à confirmer).`);
 	console.log(`OK : ${events.length} cours, ${tasks.filter((t) => !t.fait).length} tâches, ${partiels.length} partiels. ${etat.message}`);
 }
