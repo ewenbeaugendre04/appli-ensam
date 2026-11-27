@@ -83,6 +83,12 @@ async function main() {
 		const r = await fetch(url, { cache: "no-store" });
 		const t = await r.text();
 		console.log(`Vérification : HTTP ${r.status}, ${r.headers.get("content-type")}, début « ${t.slice(0, 40).replace(/\s+/g, " ")} »`);
+		if (!r.ok) {
+			console.log(`Titre de la page : ${(t.match(/<title>([^<]*)/i) || [])[1]} · texte : ${t.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300)}`);
+			const info = await (await nf(`/sites/${s.id}`)).json();
+			const cles = ["state", "plan", "password", "has_password", "sso_login", "sso_login_context", "visitor_access", "protection", "account_slug", "published_deploy"];
+			console.log("Site : " + JSON.stringify(Object.fromEntries(Object.entries(info).filter(([k]) => cles.includes(k) || /pass|protect|sso|auth|access/i.test(k)).map(([k, v]) => [k, k === "published_deploy" ? v?.state : v]))));
+		}
 	} catch (e) { console.log(`Vérification impossible : ${e.message}`); }
 	await retenirAdresse(url);
 }
