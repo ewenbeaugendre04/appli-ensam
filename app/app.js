@@ -598,7 +598,7 @@ function carteGroupes(cfg, base) {
 	return `<section class="carte"><h2>Calendrier du groupe 1</h2>
 		<p class="petit">Numéro étudiant d'un camarade du groupe 1 : son lien iCal Lise sert de base, comme pour toi. Ses notes ne sont jamais récupérées.</p>
 		<label for="g1-id">Numéro étudiant du camarade</label>
-		<input id="g1-id" inputmode="numeric" autocomplete="off" value="${h(g.liseId || "")}" placeholder="ex. 2025xxxx">
+		<input id="g1-id" autocomplete="off" value="${h(g.liseId || "")}" placeholder="ex. 2026-1234">
 		<label for="g1-nom">Nom affiché (facultatif)</label>
 		<input id="g1-nom" autocomplete="off" value="${h(g.nom || "")}" placeholder="GIM1 groupe 1">
 		<div class="actions"><button class="bouton plein" data-g1-enregistrer>Enregistrer</button>${g.liseId ? '<button class="bouton danger" data-g1-retirer>Retirer</button>' : ""}</div>
@@ -815,8 +815,10 @@ document.addEventListener("click", (e) => {
 	if (d.copier) { navigator.clipboard?.writeText(d.copier).then(() => alerteDouce("Lien copié."), () => {}); return; }
 	if ("recharger" in d) return charger().then(() => alerteDouce("À jour."));
 	if ("g1Enregistrer" in d) {
-		const liseId = $("#g1-id").value.replace(/\s+/g, ""), nom = $("#g1-nom").value.trim();
-		if (!/^\d{4,}$/.test(liseId)) return bandeau("Numéro étudiant invalide (chiffres uniquement)");
+		// Format Lise : 2026-0346 (année, tiret, numéro) ; « 20260346 » est remis en forme
+		let liseId = $("#g1-id").value.replace(/\s+/g, ""); const nom = $("#g1-nom").value.trim();
+		if (/^\d{8}$/.test(liseId)) liseId = liseId.slice(0, 4) + "-" + liseId.slice(4);
+		if (!/^\d{4}-\d{3,}$/.test(liseId)) return bandeau("Numéro étudiant attendu au format 2026-1234");
 		const alea = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
 		return action(() => modifier("config.json", "config", (cfg) => {
 			const l = (cfg.groupes || []).filter((x) => x.id !== "g1"), a = (cfg.groupes || []).find((x) => x.id === "g1");
