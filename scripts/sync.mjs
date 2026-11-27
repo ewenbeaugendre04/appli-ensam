@@ -137,9 +137,12 @@ async function fetchLise(liseId) {
 		return readFile(LOCAL_ICS, "utf8");
 	}
 	let lastErr;
-	for (const base of ["https://lise.ensam.eu/ical_apprenant/", "http://lise.ensam.eu/ical_apprenant/"]) {
+	// Lise coupe parfois la connexion : jusqu'à 3 essais espacés, en https puis http
+	const essais = ["https://lise.ensam.eu/ical_apprenant/", "http://lise.ensam.eu/ical_apprenant/", "https://lise.ensam.eu/ical_apprenant/", "https://lise.ensam.eu/ical_apprenant/"];
+	for (const [i, base] of essais.entries()) {
+		if (i) await new Promise((r) => setTimeout(r, 5000 * i));
 		try {
-			const res = await fetch(base + encodeURIComponent(liseId), { headers: { "cache-control": "no-cache" } });
+			const res = await fetch(base + encodeURIComponent(liseId), { headers: { "cache-control": "no-cache", "User-Agent": "Mozilla/5.0 (Appli ENSAM)" }, signal: AbortSignal.timeout(30000) });
 			if (res.ok) {
 				const t = await res.text();
 				if (t.includes("BEGIN:VCALENDAR")) return t;
