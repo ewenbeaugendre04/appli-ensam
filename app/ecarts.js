@@ -25,8 +25,6 @@
 .ag-col.ec-ics .ag-cours{box-shadow:inset 0 3px 0 var(--ec-std)}
 .ag-col.ec-lise .ag-cours{box-shadow:inset 0 3px 0 var(--ec-lise)}
 .ag-cours.ec-d{outline-offset:-2px}
-.ag-col.ec-ics .ag-cours.ec-d{outline:2px dashed var(--ec-std)}
-.ag-col.ec-lise .ag-cours.ec-d{outline:2px dashed var(--ec-lise)}
 .ag-semaine.avec-ecarts .ag-cours{font-size:9.5px}
 `;
 	document.head.appendChild(style);
