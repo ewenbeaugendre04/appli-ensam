@@ -429,3 +429,4 @@ code.ic { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; background
   .ag-ligne-tete, .ag-ligne-haut, .ag-corps { grid-template-columns: 44px repeat(var(--n), minmax(0, 1fr)); }
   .ag-cours, .ag-puce { font-size: 12px; } .ag-h, .ag-s { font-size: 11px; } .ag-heure { font-size: 11px; }
 }
+.lien-discret { background: none; border: 0; padding: 4px; font-size: 11px; color: var(--texte-2, #888); text-decoration: underline; cursor: pointer; }

@@ -45,8 +45,18 @@ function retenir(res) {
 		if (i > 0) jar.set(kv.slice(0, i).trim(), kv.slice(i + 1).trim());
 	}
 }
+// Le site Lise coupe souvent la connexion (« fetch failed ») : jusqu'à 4 essais espacés
+async function fetchTenace(url, init) {
+	let err;
+	for (let i = 0; i < 4; i++) {
+		if (i) await new Promise((ok) => setTimeout(ok, 4000 * i));
+		try { return await fetch(url, { ...init, signal: AbortSignal.timeout(25000) }); }
+		catch (e) { err = e; console.log(`Lise : essai ${i + 1} échoué (${e.cause?.code || e.message})`); }
+	}
+	throw err;
+}
 async function requete(url, opts = {}, sauts = 6) {
-	const res = await fetch(url, { ...opts, redirect: "manual", signal: AbortSignal.timeout(25000), headers: { "User-Agent": UA, "Accept-Language": "fr-FR,fr;q=0.9", Cookie: cookieHeader(), ...(opts.headers || {}) } });
+	const res = await fetchTenace(url, { ...opts, redirect: "manual", headers: { "User-Agent": UA, "Accept-Language": "fr-FR,fr;q=0.9", Cookie: cookieHeader(), ...(opts.headers || {}) } });
 	retenir(res);
 	const loc = res.headers.get("location");
 	if (res.status >= 300 && res.status < 400 && loc && sauts > 0 && !opts.pasDeSuivi) return requete(new URL(loc, url).href, { headers: opts.headers }, sauts - 1);

@@ -601,7 +601,7 @@ function carteGroupes(cfg, base) {
 		<input id="g1-id" autocomplete="off" value="${h(g.liseId || "")}" placeholder="ex. 2026-1234">
 		<label for="g1-nom">Nom affiché (facultatif)</label>
 		<input id="g1-nom" autocomplete="off" value="${h(g.nom || "")}" placeholder="GIM1 groupe 1">
-		<div class="actions"><button class="bouton plein" data-g1-enregistrer>Enregistrer</button>${g.liseId ? '<button class="bouton danger" data-g1-retirer>Retirer</button>' : ""}</div>
+		<div class="actions"><button class="bouton plein" data-g1-enregistrer>Enregistrer</button></div>
 		${lien ? `<p style="margin-top:12px">Son emploi du temps, sans aucune tâche :</p>
 		<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
 		<div class="code-lien">${h(lien)}</div>
@@ -611,6 +611,7 @@ function carteGroupes(cfg, base) {
 		<p>Le site Lise est parfois plus à jour que le lien iCal. Pour le lire, il faut son mot de passe Lise, <strong>avec son accord</strong> : il n'est jamais écrit dans l'appli ni dans les données.</p>
 		<p>GitHub → dépôt <code>appli-ensam</code> → Settings → Secrets and variables → Actions → <em>New repository secret</em> · Nom : <code>LISE_PASSWORD_G1</code> · Valeur : son mot de passe.</p>
 		<p>Comme personne ne tranche pour lui, la version du site Lise est prise quand elle diffère ; un cours absent du site reste, marqué ❓.</p></details>` : ""}
+		${g.liseId ? '<p style="margin-top:18px;text-align:right"><button class="lien-discret" data-g1-retirer>Retirer le groupe 1</button></p>' : ""}
 	</section>`;
 }
 
@@ -827,6 +828,7 @@ document.addEventListener("click", (e) => {
 		}, "Calendrier du groupe 1"));
 	}
 	if ("g1Retirer" in d) {
+		if (!confirm("Retirer le calendrier du groupe 1 ? Son lien d'abonnement ne sera plus mis à jour.")) return;
 		return action(() => modifier("config.json", "config", (cfg) => { cfg.groupes = (cfg.groupes || []).filter((x) => x.id !== "g1"); return cfg; }, "Calendrier du groupe 1 retiré"));
 	}
 	if ("forcer" in d) {
