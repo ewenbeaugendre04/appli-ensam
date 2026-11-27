@@ -1,7 +1,7 @@
 // Cache de l'application pour l'ouvrir même sans réseau (les données sont gardées par app.js)
-const CACHE = "appli-ensam-v34";
+const CACHE = "appli-ensam-v35";
 const CACHE_CDN = "appli-ensam-cdn-1"; // Python, KaTeX : gardés entre les versions (gros fichiers)
-const FICHIERS = ["./", "index.html", "style.css", "app.js", "ecarts.js", "ecarts-clic.js", "ecarts-choix.js", "ecarts-infos.js", "revision.js", "python.js", "py-worker.js", "py/simu.py", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
+const FICHIERS = ["./", "index.html", "style.css", "app.js", "ecarts.js", "ecarts-clic.js", "ecarts-choix.js", "ecarts-infos.js", "groupes.js", "revision.js", "python.js", "py-worker.js", "py/simu.py", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE && k !== CACHE_CDN).map((k) => caches.delete(k)))));
