@@ -244,6 +244,88 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 	return L.map(fold).join("\r\n") + "\r\n";
 }
 
+// Lise ne renvoie que les semaines à venir : on garde les cours déjà passés
+// (ceux qui commencent avant le premier cours renvoyé par Lise) pour ne pas perdre l'historique.
+export function fusionPasse(anciens, fresh) {
+	if (!fresh.length) return anciens;
+	const debutLise = fresh.reduce((m, e) => (e.debut < m ? e.debut : m), fresh[0].debut);
+	const uids = new Set(fresh.map((e) => e.uid));
+	const passes = (anciens || []).filter((e) => e.debut < debutLise && !uids.has(e.uid));
+	return [...passes, ...fresh].sort((a, b) => a.debut.localeCompare(b.debut));
+}
+
+// ---------- Planning du site Lise (plus à jour que le lien iCal) ----------
+// notes.mjs enregistre dans planning-web.json les cours de l'agenda du site (connexion avec le mot de passe).
+// Titre du site : « SALLE - début - fin - Module - Type - [activité - ] intervenants - durée - - groupes ».
+const TYPES_WEB = "CM|ED_TD|TPS|TD|TP|TEST|EXAMEN|REUNION|PROJET|TRAVAIL_AUTONOME";
+export function eventsDepuisSite(webEvents, ical) {
+	const utilises = new Set();
+	const out = [];
+	for (const w of webEvents) {
+		const debut = new Date(w.start).toISOString(), fin = new Date(w.end).toISOString();
+		const m = w.title.match(new RegExp(`^(.*?) - (\\d\\d:\\d\\d) - (\\d\\d:\\d\\d) - (.+?) - (${TYPES_WEB}) - (.*?)(?: - (\\d+h\\d*))? - (.*)$`));
+		const salle = m ? m[1].trim() : "";
+		const module = m ? m[4].trim() : "";
+		const typeRaw = (m ? m[5] : w.type) || "";
+		const reste = m ? m[6] : "";
+		const profs = reste.replace(/^\s*-\s*/, "").replace(/\s*-\s*$/, "").trim();
+		const groupes = m ? (m[8].match(/FITE[^-]*|FIP[^-]*/)?.[0] || "").trim() : "";
+		const libre = (e) => !utilises.has(e.uid) && (!module || e.module === module);
+		const exact = ical.find((e) => libre(e) && e.debut === debut && e.fin === fin);
+		if (exact) { utilises.add(exact.uid); out.push(exact); continue; }
+		// Même module le même jour mais horaire corrigé sur le site : on garde l'identifiant (les partiels Lise y sont attachés)
+		const proche = ical.filter((e) => libre(e) && e.debut.slice(0, 10) === debut.slice(0, 10) && e.type === (TYPE_LABELS[typeRaw] || typeRaw))
+			.sort((a, b) => Math.abs(Date.parse(a.debut) - Date.parse(debut)) - Math.abs(Date.parse(b.debut) - Date.parse(debut)))[0];
+		if (proche) { utilises.add(proche.uid); out.push({ ...proche, debut, fin, salle: salle || proche.salle, profs: profs || proche.profs }); continue; }
+		const titre = module || "Cours";
+		const examen = typeRaw === "EXAMEN" || typeRaw === "TEST" || /\b(partiel|examen|contr[ôo]le|interro)\b/i.test(titre);
+		out.push({ uid: `web-${debut}-${titre}`.replace(/\s+/g, "_"), titre, module, code: "", type: TYPE_LABELS[typeRaw] || typeRaw, examen, debut, fin, journee: false, salle, profs, groupes });
+	}
+	return out.sort((a, b) => a.debut.localeCompare(b.debut));
+}
+// Le lien iCal reste la base. Le planning du site n'est qu'un point de comparaison : les écarts sont écrits dans
+// ecarts.json (pour la notification) et ne sont appliqués que si Ewen les a acceptés (decisions.json → appliques).
+const cleCours = (e) => `${e.debut}|${e.fin}`;
+export function comparerPlanning(base, site, maintenant = Date.now()) {
+	if (!site.length) return [];
+	const lo = site[0].debut, hi = site.reduce((m, e) => (e.fin > m ? e.fin : m), site[0].fin);
+	const debutAuj = new Date(maintenant - 86400e3).toISOString();
+	const dansLaPeriode = (e) => e.fin > lo && e.debut < hi && e.debut >= debutAuj;
+	const b = base.filter(dansLaPeriode);
+	const sBon = site.filter((e) => e.debut >= debutAuj);
+	const utilises = new Set();
+	const ecarts = [];
+	for (const w of sBon) {
+		const meme = b.find((e) => !utilises.has(e.uid) && cleCours(e) === cleCours(w) && e.uid === w.uid);
+		if (meme) { utilises.add(meme.uid); if ((meme.salle || "") !== (w.salle || "") && w.salle) ecarts.push({ type: "salle", uid: meme.uid, avant: meme, apres: { ...meme, salle: w.salle } }); continue; }
+		const decale = b.find((e) => !utilises.has(e.uid) && e.uid === w.uid);
+		if (decale) { utilises.add(decale.uid); ecarts.push({ type: "horaire", uid: decale.uid, avant: decale, apres: w }); continue; }
+		ecarts.push({ type: "ajout", uid: w.uid, apres: w });
+	}
+	for (const e of b) if (!utilises.has(e.uid)) ecarts.push({ type: "suppression", uid: e.uid, avant: e });
+	const hhmm = (iso) => new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+	const hh = (iso) => new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+	return ecarts.map((x) => {
+		const ref = x.apres || x.avant;
+		const id = `${x.type}:${x.uid}:${(x.apres || x.avant).debut}:${x.apres ? x.apres.fin : ""}:${x.apres?.salle || ""}`;
+		const resume = { ajout: () => `Ajout sur le site : ${ref.titre} (${ref.type}) ${hhmm(ref.debut)}${ref.salle ? ", " + ref.salle : ""}`,
+			suppression: () => `Absent du site : ${ref.titre} (${ref.type}) ${hhmm(ref.debut)}`,
+			horaire: () => `Horaire différent : ${ref.titre} — lien ${hhmm(x.avant?.debut)}–${hh(x.avant?.fin)} → site ${hhmm(x.apres?.debut)}–${hh(x.apres?.fin)}`,
+			salle: () => `Salle différente : ${ref.titre} ${hhmm(ref.debut)} — ${x.avant?.salle || "?"} → ${x.apres?.salle}` }[x.type]();
+		return { id, type: x.type, resume, ...(x.avant ? { avant: x.avant } : {}), ...(x.apres ? { apres: x.apres } : {}) };
+	});
+}
+export function appliquerEcarts(events, ecarts, appliques) {
+	let out = events.slice();
+	for (const x of ecarts.filter((e) => appliques.includes(e.id))) {
+		if (x.type === "suppression") out = out.filter((e) => e.uid !== x.avant.uid);
+		else if (x.type === "ajout") out.push(x.apres);
+		else out = out.map((e) => (e.uid === x.avant.uid ? x.apres : e));
+	}
+	return out.sort((a, b) => a.debut.localeCompare(b.debut));
+}
+
+
 // ---------- Choix iCal / Lise (mêmes règles que l'agenda de l'appli, ecarts-choix.js) ----------
 //  - écart d'horaire : version choisie (choix.json → versions : "ics" | "lise") ; sans choix ni décision : les deux, marquées ❓ ;
 //  - cours qui se chevauchent entre le lien iCal et le site (uid « web-… ») : seul le cours retenu (choix.json → effectifs) ;
