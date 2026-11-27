@@ -191,11 +191,11 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 		"REFRESH-INTERVAL;VALUE=DURATION:PT15M", "X-PUBLISHED-TTL:PT15M",
 	];
 	for (const e of events) {
-		const desc = [e.type && `Type : ${e.type}`, e.module && `Module : ${e.module}`, e.profs && `Intervenants : ${e.profs}`, e.groupes && `Groupes : ${e.groupes}`].filter(Boolean).join("\n");
+		const desc = [e.doute && "Version à confirmer : le lien iCal et le site Lise ne sont pas d'accord.", e.type && `Type : ${e.type}`, e.module && `Module : ${e.module}`, e.profs && `Intervenants : ${e.profs}`, e.groupes && `Groupes : ${e.groupes}`].filter(Boolean).join("\n");
 		L.push("BEGIN:VEVENT", `UID:lise-${esc(e.uid)}`, `DTSTAMP:${now}`);
 		if (e.journee) L.push(`DTSTART;VALUE=DATE:${dateOnly(e.debut)}`, `DTEND;VALUE=DATE:${dateOnly(e.fin)}`);
 		else L.push(`DTSTART:${utcStamp(e.debut)}`, `DTEND:${utcStamp(e.fin)}`);
-		L.push(`SUMMARY:${esc((e.examen ? "🎓 " : "") + (e.type ? `${e.type} · ` : "") + e.titre)}`);
+		L.push(`SUMMARY:${esc((e.doute ? "❓ " : "") + (e.examen ? "🎓 " : "") + (e.type ? `${e.type} · ` : "") + e.titre)}`);
 		if (e.salle) L.push(`LOCATION:${esc(e.salle)}`);
 		if (desc) L.push(`DESCRIPTION:${esc(desc)}`);
 		if (e.examen) L.push(...alarm("-P7D", `Partiel dans 7 jours : ${e.titre}`), ...alarm("-P1D", `Partiel demain : ${e.titre}`));
@@ -244,137 +244,120 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 	return L.map(fold).join("\r\n") + "\r\n";
 }
 
-// ---------- Programme principal ----------
-// Lise ne renvoie que les semaines à venir : on garde les cours déjà passés
-// (ceux qui commencent avant le premier cours renvoyé par Lise) pour ne pas perdre l'historique.
-export function fusionPasse(anciens, fresh) {
-	if (!fresh.length) return anciens;
-	const debutLise = fresh.reduce((m, e) => (e.debut < m ? e.debut : m), fresh[0].debut);
-	const uids = new Set(fresh.map((e) => e.uid));
-	const passes = (anciens || []).filter((e) => e.debut < debutLise && !uids.has(e.uid));
-	return [...passes, ...fresh].sort((a, b) => a.debut.localeCompare(b.debut));
-}
-
-// ---------- Planning du site Lise (plus à jour que le lien iCal) ----------
-// notes.mjs enregistre dans planning-web.json les cours de l'agenda du site (connexion avec le mot de passe).
-// Titre du site : « SALLE - début - fin - Module - Type - [activité - ] intervenants - durée - - groupes ».
-const TYPES_WEB = "CM|ED_TD|TPS|TD|TP|TEST|EXAMEN|REUNION|PROJET|TRAVAIL_AUTONOME";
-export function eventsDepuisSite(webEvents, ical) {
-	const utilises = new Set();
-	const out = [];
-	for (const w of webEvents) {
-		const debut = new Date(w.start).toISOString(), fin = new Date(w.end).toISOString();
-		const m = w.title.match(new RegExp(`^(.*?) - (\\d\\d:\\d\\d) - (\\d\\d:\\d\\d) - (.+?) - (${TYPES_WEB}) - (.*?)(?: - (\\d+h\\d*))? - (.*)$`));
-		const salle = m ? m[1].trim() : "";
-		const module = m ? m[4].trim() : "";
-		const typeRaw = (m ? m[5] : w.type) || "";
-		const reste = m ? m[6] : "";
-		const profs = reste.replace(/^\s*-\s*/, "").replace(/\s*-\s*$/, "").trim();
-		const groupes = m ? (m[8].match(/FITE[^-]*|FIP[^-]*/)?.[0] || "").trim() : "";
-		const libre = (e) => !utilises.has(e.uid) && (!module || e.module === module);
-		const exact = ical.find((e) => libre(e) && e.debut === debut && e.fin === fin);
-		if (exact) { utilises.add(exact.uid); out.push(exact); continue; }
-		// Même module le même jour mais horaire corrigé sur le site : on garde l'identifiant (les partiels Lise y sont attachés)
-		const proche = ical.filter((e) => libre(e) && e.debut.slice(0, 10) === debut.slice(0, 10) && e.type === (TYPE_LABELS[typeRaw] || typeRaw))
-			.sort((a, b) => Math.abs(Date.parse(a.debut) - Date.parse(debut)) - Math.abs(Date.parse(b.debut) - Date.parse(debut)))[0];
-		if (proche) { utilises.add(proche.uid); out.push({ ...proche, debut, fin, salle: salle || proche.salle, profs: profs || proche.profs }); continue; }
-		const titre = module || "Cours";
-		const examen = typeRaw === "EXAMEN" || typeRaw === "TEST" || /\b(partiel|examen|contr[ôo]le|interro)\b/i.test(titre);
-		out.push({ uid: `web-${debut}-${titre}`.replace(/\s+/g, "_"), titre, module, code: "", type: TYPE_LABELS[typeRaw] || typeRaw, examen, debut, fin, journee: false, salle, profs, groupes });
-	}
-	return out.sort((a, b) => a.debut.localeCompare(b.debut));
-}
-// Le lien iCal reste la base. Le planning du site n'est qu'un point de comparaison : les écarts sont écrits dans
-// ecarts.json (pour la notification) et ne sont appliqués que si Ewen les a acceptés (decisions.json → appliques).
-const cleCours = (e) => `${e.debut}|${e.fin}`;
-export function comparerPlanning(base, site, maintenant = Date.now()) {
-	if (!site.length) return [];
-	const lo = site[0].debut, hi = site.reduce((m, e) => (e.fin > m ? e.fin : m), site[0].fin);
-	const debutAuj = new Date(maintenant - 86400e3).toISOString();
-	const dansLaPeriode = (e) => e.fin > lo && e.debut < hi && e.debut >= debutAuj;
-	const b = base.filter(dansLaPeriode);
-	const sBon = site.filter((e) => e.debut >= debutAuj);
-	const utilises = new Set();
-	const ecarts = [];
-	for (const w of sBon) {
-		const meme = b.find((e) => !utilises.has(e.uid) && cleCours(e) === cleCours(w) && e.uid === w.uid);
-		if (meme) { utilises.add(meme.uid); if ((meme.salle || "") !== (w.salle || "") && w.salle) ecarts.push({ type: "salle", uid: meme.uid, avant: meme, apres: { ...meme, salle: w.salle } }); continue; }
-		const decale = b.find((e) => !utilises.has(e.uid) && e.uid === w.uid);
-		if (decale) { utilises.add(decale.uid); ecarts.push({ type: "horaire", uid: decale.uid, avant: decale, apres: w }); continue; }
-		ecarts.push({ type: "ajout", uid: w.uid, apres: w });
-	}
-	for (const e of b) if (!utilises.has(e.uid)) ecarts.push({ type: "suppression", uid: e.uid, avant: e });
-	const hhmm = (iso) => new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-	const hh = (iso) => new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-	return ecarts.map((x) => {
-		const ref = x.apres || x.avant;
-		const id = `${x.type}:${x.uid}:${(x.apres || x.avant).debut}:${x.apres ? x.apres.fin : ""}:${x.apres?.salle || ""}`;
-		const resume = { ajout: () => `Ajout sur le site : ${ref.titre} (${ref.type}) ${hhmm(ref.debut)}${ref.salle ? ", " + ref.salle : ""}`,
-			suppression: () => `Absent du site : ${ref.titre} (${ref.type}) ${hhmm(ref.debut)}`,
-			horaire: () => `Horaire différent : ${ref.titre} — lien ${hhmm(x.avant?.debut)}–${hh(x.avant?.fin)} → site ${hhmm(x.apres?.debut)}–${hh(x.apres?.fin)}`,
-			salle: () => `Salle différente : ${ref.titre} ${hhmm(ref.debut)} — ${x.avant?.salle || "?"} → ${x.apres?.salle}` }[x.type]();
-		return { id, type: x.type, resume, ...(x.avant ? { avant: x.avant } : {}), ...(x.apres ? { apres: x.apres } : {}) };
-	});
-}
-export function appliquerEcarts(events, ecarts, appliques) {
+// ---------- Choix iCal / Lise (mêmes règles que l'agenda de l'appli, ecarts-choix.js) ----------
+//  - écart d'horaire : version choisie (choix.json → versions : "ics" | "lise") ; sans choix ni décision : les deux, marquées ❓ ;
+//  - cours qui se chevauchent entre le lien iCal et le site (uid « web-… ») : seul le cours retenu (choix.json → effectifs) ;
+//    sans choix : tous, marqués ❓.
+export function appliquerChoix(events, ecarts, choix, decisions) {
+	const versions = choix?.versions || {}, retenus = new Set(choix?.effectifs || []);
+	const decides = new Set([...(decisions?.appliques || []), ...(decisions?.ignores || [])]);
+	const doute = (e) => ({ ...e, doute: true });
 	let out = events.slice();
-	for (const x of ecarts.filter((e) => appliques.includes(e.id))) {
-		if (x.type === "suppression") out = out.filter((e) => e.uid !== x.avant.uid);
-		else if (x.type === "ajout") out.push(x.apres);
-		else out = out.map((e) => (e.uid === x.avant.uid ? x.apres : e));
+	for (const x of ecarts || []) {
+		if (x.type !== "horaire" || !x.avant || !x.apres) continue;
+		const uid = String(x.avant.uid), cote = versions[x.id];
+		if (!cote && decides.has(x.id)) continue;
+		out = out.filter((e) => String(e.uid) !== uid);
+		if (cote === "ics") out.push(x.avant);
+		else if (cote === "lise") out.push(x.apres);
+		else out.push(doute(x.avant), doute({ ...x.apres, uid: uid + "-site" }));
+	}
+	out.sort((a, b) => a.debut.localeCompare(b.debut));
+	const estWeb = (e) => String(e.uid).startsWith("web-");
+	const groupes = [];
+	let g = null, fin = "";
+	for (const e of out.filter((e) => !e.journee)) {
+		if (g && e.debut < fin) { g.push(e); if (e.fin > fin) fin = e.fin; }
+		else { g = [e]; groupes.push(g); fin = e.fin; }
+	}
+	const exclus = new Set(), douteux = new Set();
+	for (const gr of groupes) {
+		if (gr.length < 2 || !gr.some(estWeb) || !gr.some((e) => !estWeb(e))) continue;
+		if (gr.some((e) => retenus.has(String(e.uid)))) { for (const e of gr) if (!retenus.has(String(e.uid))) exclus.add(e.uid); }
+		else for (const e of gr) douteux.add(e.uid);
+	}
+	return out.filter((e) => !exclus.has(e.uid)).map((e) => (douteux.has(e.uid) ? doute(e) : e));
+}
+
+// Pour un camarade (personne pour trancher dans l'appli) : le site Lise est le plus à jour,
+// on prend ses ajouts et ses horaires ; un cours absent du site est gardé mais marqué ❓.
+export function appliquerSiteAuto(events, ecarts) {
+	let out = events.slice();
+	for (const x of ecarts || []) {
+		if (x.type === "ajout") out.push(x.apres);
+		else if (x.type === "horaire" || x.type === "salle") out = out.map((e) => (e.uid === x.avant.uid ? x.apres : e));
+		else if (x.type === "suppression") out = out.map((e) => (e.uid === x.avant.uid ? { ...e, doute: true } : e));
 	}
 	return out.sort((a, b) => a.debut.localeCompare(b.debut));
 }
 
-async function main() {
-	if (!TOKEN && !LOCAL_ICS) throw new Error("Secret DATA_TOKEN manquant");
-	const cfg = await readJson("config.json", { data: {} });
-	const config = cfg.data;
-	if (!config.liseId && !LOCAL_ICS) throw new Error("liseId absent de config.json");
-	if (!config.icsName) throw new Error("icsName absent de config.json");
-
-	const tasks = (await readJson("tasks.json", { data: [] })).data;
-	const partiels = (await readJson("partiels.json", { data: [] })).data;
-	const prev = await readJson("events.json", { data: { events: [] } });
-
+// ---------- Synchro d'un emploi du temps (le tien ou celui d'un camarade) ----------
+// dossier : "" pour toi (fichiers à la racine du dépôt de données), "groupes/<id>/" pour un camarade.
+async function synchroniser({ liseId, dossier = "", principal = false }) {
+	const prev = await readJson(dossier + "events.json", { data: { events: [] } });
 	let events = prev.data.events || [];
+	let ecarts = (await readJson(dossier + "ecarts.json", { data: { ecarts: [] } })).data?.ecarts || [];
 	let etat = { ok: true, message: "Synchronisé avec Lise" };
+	let base = events;
 	try {
-		const raw = parseIcs(await fetchLise(config.liseId));
-		if (raw[0]?.DTSTART) console.log(`::notice title=Format Lise::DTSTART ${JSON.stringify(raw[0].DTSTART)}`);
+		const raw = parseIcs(await fetchLise(liseId));
 		const fresh = normaliseLise(raw);
 		if (fresh.length === 0 && events.length > 0) {
 			etat = { ok: false, message: "Lise a renvoyé un calendrier vide : ancienne version conservée" };
 		} else {
-			events = fusionPasse(events, fresh);
-			const web = (await readJson("planning-web.json", { data: null })).data;
+			events = fusionPasse(principal ? events : (prev.data.base || []), fresh);
+			base = events;
+			const web = (await readJson(dossier + "planning-web.json", { data: null })).data;
 			if (web?.events?.length && Date.now() - Date.parse(web.majLe) < 24 * 3600e3) {
 				const site = eventsDepuisSite(web.events, fresh);
-				const ecarts = comparerPlanning(events, site);
-				const dec = (await readJson("decisions.json", { data: { appliques: [], ignores: [] } })).data;
-				const prevEc = await readJson("ecarts.json", { data: null });
-				const ids = ecarts.map((x) => x.id).join();
-				if (!prevEc.data || prevEc.data.ecarts.map((x) => x.id).join() !== ids) await writeJson("ecarts.json", { majLe: new Date().toISOString(), sourceMajLe: web.majLe, ecarts }, prevEc.sha, `Planning : ${ecarts.length} écart(s) avec le site Lise`);
-				events = appliquerEcarts(events, ecarts, dec.appliques || []);
-			}
+				ecarts = comparerPlanning(events, site);
+				const prevEc = await readJson(dossier + "ecarts.json", { data: null });
+				if (!prevEc.data || prevEc.data.ecarts.map((x) => x.id).join() !== ecarts.map((x) => x.id).join())
+					await writeJson(dossier + "ecarts.json", { majLe: new Date().toISOString(), sourceMajLe: web.majLe, ecarts }, prevEc.sha, `Planning ${dossier || ""}: ${ecarts.length} écart(s) avec le site Lise`);
+				if (principal) {
+					const dec = (await readJson("decisions.json", { data: { appliques: [], ignores: [] } })).data;
+					events = appliquerEcarts(events, ecarts, dec.appliques || []);
+				} else events = appliquerSiteAuto(events, ecarts);
+			} else if (!principal) ecarts = [];
 		}
 	} catch (err) {
 		etat = { ok: false, message: `Lise injoignable (${err.message}) : ancienne version conservée` };
-		console.log(`::warning title=Lise::${etat.message}`);
+		console.log(`::warning title=Lise ${dossier || "(toi)"}::${etat.message}`);
 	}
-
 	const same = JSON.stringify(events) === JSON.stringify(prev.data.events || []);
-	const payload = { majLe: new Date().toISOString(), etat, events };
-	// Pour limiter les commits : on n'écrit que si le planning a changé, ou au plus toutes les 6 h
+	const payload = { majLe: new Date().toISOString(), etat, events, ...(principal ? {} : { base }) };
 	const age = prev.data.majLe ? Date.now() - Date.parse(prev.data.majLe) : Infinity;
-	if (TOKEN && (!same || age > 6 * 3600e3 || prev.data.etat?.ok !== etat.ok)) {
-		await writeJson("events.json", payload, prev.sha, same ? "Synchro Lise (vérification)" : "Synchro Lise : planning mis à jour");
-	}
+	if (TOKEN && (!same || age > 6 * 3600e3 || prev.data.etat?.ok !== etat.ok))
+		await writeJson(dossier + "events.json", payload, prev.sha, same ? `Synchro Lise ${dossier}(vérification)` : `Synchro Lise ${dossier}: planning mis à jour`);
+	return { events, ecarts, etat };
+}
 
-	const ics = buildIcs({ events, tasks, partiels, nom: config.nomCalendrier || "ENSAM" });
+// ---------- Programme principal ----------
+// Les liens .ics sont faits pour être partagés : cours Lise (avec tes choix iCal / Lise) et partiels, JAMAIS les tâches.
+async function main() {
+	if (!TOKEN && !LOCAL_ICS) throw new Error("Secret DATA_TOKEN manquant");
+	const config = (await readJson("config.json", { data: {} })).data;
+	if (!config.liseId && !LOCAL_ICS) throw new Error("liseId absent de config.json");
+	if (!config.icsName) throw new Error("icsName absent de config.json");
 	await mkdir(`${OUT_DIR}/cal`, { recursive: true });
-	await writeFile(`${OUT_DIR}/cal/${config.icsName}.ics`, ics);
-	console.log(`OK : ${events.length} cours, ${tasks.filter((t) => !t.fait).length} tâches, ${partiels.length} partiels. ${etat.message}`);
+
+	// Ton emploi du temps
+	const partiels = (await readJson("partiels.json", { data: [] })).data;
+	const moi = await synchroniser({ liseId: config.liseId, principal: true });
+	const choix = (await readJson("choix.json", { data: { effectifs: [], versions: {} } })).data;
+	const decisions = (await readJson("decisions.json", { data: { appliques: [], ignores: [] } })).data;
+	const mesCours = appliquerChoix(moi.events, moi.ecarts, choix, decisions);
+	const partielsPartages = partiels.map(({ description, note, ...p }) => p); // sans tes notes personnelles
+	await writeFile(`${OUT_DIR}/cal/${config.icsName}.ics`, buildIcs({ events: mesCours, tasks: [], partiels: partielsPartages, nom: config.nomCalendrier || `ENSAM ${config.groupe || ""}`.trim() }));
+	console.log(`OK : ${mesCours.length} cours (${mesCours.filter((e) => e.doute).length} à confirmer), ${partiels.length} partiels, aucune tâche. ${moi.etat.message}`);
+
+	// Camarades d'autres groupes (Réglages → Calendriers des groupes)
+	for (const g of config.groupes || []) {
+		if (!g.liseId || !g.icsName || !g.id) continue;
+		const r = await synchroniser({ liseId: g.liseId, dossier: `groupes/${g.id}/` });
+		await writeFile(`${OUT_DIR}/cal/${g.icsName}.ics`, buildIcs({ events: r.events, tasks: [], partiels: [], nom: `ENSAM ${g.nom || g.id}` }));
+		console.log(`Groupe ${g.nom || g.id} : ${r.events.length} cours (${r.events.filter((e) => e.doute).length} à confirmer). ${r.etat.message}`);
+	}
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

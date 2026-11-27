@@ -42,6 +42,17 @@ jobs:
           LISE_PASSWORD: ${{ secrets.LISE_PASSWORD || vars.LISE_PASSWORD }}
         run: node scripts/notes.mjs
 
+      # Camarade du groupe 1 : son emploi du temps sur le site Lise (jamais ses notes).
+      # Secret à créer : LISE_PASSWORD_G1 (son mot de passe Lise, avec son accord). Sans lui, seul son lien iCal est utilisé.
+      - name: Emploi du temps du groupe 1 (site Lise)
+        continue-on-error: true
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPO: ${{ github.repository_owner }}/appli-ensam-data
+          GROUPE: g1
+          LISE_PASSWORD: ${{ secrets.LISE_PASSWORD_G1 }}
+        run: node scripts/notes.mjs
+
       - name: Synchroniser Lise, tâches et partiels
         continue-on-error: true # le site est publié même si la synchro échoue
         env:

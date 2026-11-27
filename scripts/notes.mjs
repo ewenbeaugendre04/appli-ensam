@@ -10,6 +10,9 @@ const DATA_REPO = process.env.DATA_REPO || "ewenbeaugendre04/appli-ensam-data";
 let USER = process.env.LISE_USER; // sinon : liseId de config.json
 const PASS = process.env.LISE_PASSWORD;
 const LOCAL_HTML = process.env.LOCAL_HTML; // tests : page de notes enregistrée
+// Mode « camarade » : GROUPE=<id> → seulement l'emploi du temps du site (jamais ses notes), rangé dans groupes/<id>/
+const GROUPE = process.env.GROUPE || "";
+const DOSSIER = GROUPE ? `groupes/${GROUPE}/` : "";
 const MENU_NOTES = { submenuId: process.env.LISE_SUBMENU || "submenu_47356", buttonId: process.env.LISE_BUTTON || "5_0" };
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
 
@@ -113,8 +116,12 @@ async function ecrireFichier(path, objet, message) {
 }
 async function ecrirePlanningBrut() {
 	if (!planningBrut || !TOKEN) return;
-	const w = await ecrireFichier("planning-web.json", { majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, events: planningBrut }, "Planning Lise (site) : réponse brute");
-	console.log(`Planning du site : ${planningBrut.length} cours, écriture ${w.status}`);
+	// On réécrit si le planning a changé, sinon au plus toutes les 6 h (la synchro le juge périmé après 24 h)
+	const ancien = (await lireFichier(DOSSIER + "planning-web.json")).data;
+	const pareil = ancien && JSON.stringify(ancien.events) === JSON.stringify(planningBrut);
+	if (pareil && Date.now() - Date.parse(ancien.majLe) < 6 * 3600e3) { console.log(`Planning du site ${DOSSIER}inchangé (${planningBrut.length} cours).`); return; }
+	const w = await ecrireFichier(DOSSIER + "planning-web.json", { majLe: new Date().toISOString(), debut: PLAN_DEBUT, fin: PLAN_FIN, events: planningBrut }, `Planning Lise (site) ${DOSSIER}: ${pareil ? "vérification" : "mis à jour"}`);
+	console.log(`Planning du site ${DOSSIER}: ${planningBrut.length} cours, écriture ${w.status}`);
 }
 // Fiches des cours concernés par un écart (comme un clic dans l'agenda) : code du cours et nombre d'apprenants.
 // Résultat : planning-details.json ; les deux premières réponses brutes sont gardées dans planning-detail-debug.json.
@@ -152,7 +159,7 @@ async function recupererDetails() {
 	console.log(`Fiches des cours : ${details.length} demandées.`);
 }
 
-async function pageNotes() {
+async function pageNotes(avecNotes = true) {
 	const login = await requete(`${LISE}/login`, { method: "POST", pasDeSuivi: true, body: new URLSearchParams({ username: USER, password: PASS, j_idt28: "" }).toString(), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
 	if (login.status !== 302 || !jar.has("JSESSIONID")) throw new Error(`Connexion Lise refusée (${login.status}) : vérifie l'identifiant et le mot de passe`);
 	const accueil = await (await requete(LISE)).text();
@@ -166,12 +173,31 @@ async function pageNotes() {
 	try { const evs = JSON.parse(cdata).events; if (Array.isArray(evs) && evs.length) planningBrut = evs.map((e) => ({ ...e, type: e.className })); } catch { /* format inattendu : on garde le lien iCal */ }
 	const vs2 = decoder(r1.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[([\s\S]*?)\]\]><\/update>/)?.[1] || r1.match(/<update id="j_id1:javax\.faces\.ViewState:0">([\s\S]*?)<\/update>/)?.[1] || vs);
 	ctxAgenda = { schedId, idInit, vs: vs2 };
+	if (!avecNotes) return null;
 	await post({ "javax.faces.partial.ajax": "true", "javax.faces.source": "form:j_idt52", "javax.faces.partial.execute": "form:j_idt52", "javax.faces.partial.render": "form:sidebar", "form:j_idt52": "form:j_idt52", "webscolaapp.Sidebar.ID_SUBMENU": MENU_NOTES.submenuId, ...FORM(idInit), "javax.faces.ViewState": vs2 }, true);
 	return (await post({ ...FORM(idInit), "javax.faces.ViewState": vs2, "form:sidebar": "form:sidebar", "form:sidebar_menuid": MENU_NOTES.buttonId }, false)).text();
 }
 
+// ---------- Mode camarade : emploi du temps du site seulement ----------
+async function mainGroupe() {
+	const etatFichier = DOSSIER + "etat-site.json";
+	const noter = async (ok, message) => { if (TOKEN) { const a = (await lireFichier(etatFichier)).data; if (a?.message !== message || a?.ok !== ok) await ecrireFichier(etatFichier, { ok, message, le: new Date().toISOString() }, `Planning ${DOSSIER}: ${ok ? "ok" : "échec"}`); } };
+	const config = JSON.parse(Buffer.from((await (await gh("config.json")).json()).content, "base64").toString("utf8"));
+	const g = (config.groupes || []).find((x) => x.id === GROUPE);
+	if (!g?.liseId) { console.log(`Groupe ${GROUPE} non configuré.`); return; }
+	if (!PASS) { console.log(`Pas de mot de passe pour ${GROUPE} : seul le lien iCal sera utilisé.`); await noter(false, "Mot de passe Lise du camarade absent : seul le lien iCal (numéro étudiant) est utilisé."); return; }
+	USER = g.liseId;
+	try {
+		await pageNotes(false);
+		if (!planningBrut) throw new Error("emploi du temps du site illisible");
+		await ecrirePlanningBrut();
+		await noter(true, `Site Lise lu (${planningBrut.length} créneaux).`);
+	} catch (e) { console.log(`::warning title=Planning ${GROUPE}::${e.message}`); await noter(false, e.message); }
+}
+
 // ---------- Programme ----------
 async function main() {
+	if (GROUPE) return mainGroupe();
 	if (!LOCAL_HTML && !PASS) {
 		console.log("Pas de secret LISE_PASSWORD : notes non synchronisées.");
 		// On le signale dans l'appli pour que ce soit visible

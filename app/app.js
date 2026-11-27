@@ -123,6 +123,7 @@ async function charger() {
 			lire("config.json", {}), lire("tasks.json", []), lire("partiels.json", []), lire("events.json", { events: [] }), lire("notes.json", null).catch(() => null), lire("coefficients.json", { notes: {}, ues: {} }).catch(() => ({ notes: {}, ues: {} })),
 		]);
 		S.data = { ...S.data, config, tasks, partiels, events, notes, coefs };
+		S.etatG1 = (config.groupes || []).some((g) => g.id === "g1") ? await lire("groupes/g1/etat-site.json", null).catch(() => null) : null;
 		S.horsLigne = false;
 		await chargerRevision().catch(() => {});
 		sauverCache();
@@ -567,13 +568,15 @@ const VUES = {
 		const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/?$/, "/");
 		const lien = cfg.icsName ? `${base}cal/${cfg.icsName}.ics` : "";
 		return `<div class="grille deux">
-			<section class="carte"><h2>Calendrier Apple</h2>
-				${lien ? `<p>Abonne-toi une fois sur chaque appareil : cours Lise, partiels et tâches s'y mettent à jour en continu (synchro avec Lise toutes les 10 minutes).</p>
+			<section class="carte"><h2>Calendrier Apple — ${h(cfg.groupe ? `toi (${cfg.groupe})` : "toi")}</h2>
+				${lien ? `<p>Cours Lise (avec tes choix iCal / Lise) et partiels, mis à jour toutes les 10 minutes. <strong>Tes tâches n'y sont jamais</strong> : tu peux partager ce lien.</p>
 				<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
-				<p class="petit">Dans la fenêtre qui s'ouvre, désactive « Supprimer les alertes » pour recevoir les rappels des tâches et des partiels.</p>
+				<p class="petit">Les cours marqués ❓ sont ceux où le lien iCal et le site Lise ne sont pas d'accord et que tu n'as pas encore tranchés dans l'agenda.</p>
 				<div class="code-lien">${h(lien)}</div>
 				<button class="bouton" style="margin-top:8px" data-copier="${h(lien)}">Copier le lien</button>` : '<p class="vide">Lien pas encore disponible.</p>'}
 			</section>
+
+			${carteGroupes(cfg, base)}
 
 			<section class="carte"><h2>Synchronisation</h2>
 				<p class="petit">Identifiant Lise : ${h(cfg.liseId || "—")} · Demi-troupe : ${h(cfg.groupe || "—")}</p>
@@ -586,6 +589,30 @@ const VUES = {
 		</div>`;
 	},
 };
+
+// Calendrier d'un camarade d'un autre groupe : son numéro étudiant ici, son mot de passe dans un secret GitHub
+function carteGroupes(cfg, base) {
+	const g = (cfg.groupes || []).find((x) => x.id === "g1") || {};
+	const lien = g.icsName ? `${base}cal/${g.icsName}.ics` : "";
+	const etat = S.etatG1;
+	return `<section class="carte"><h2>Calendrier du groupe 1</h2>
+		<p class="petit">Numéro étudiant d'un camarade du groupe 1 : son lien iCal Lise sert de base, comme pour toi. Ses notes ne sont jamais récupérées.</p>
+		<label for="g1-id">Numéro étudiant du camarade</label>
+		<input id="g1-id" inputmode="numeric" autocomplete="off" value="${h(g.liseId || "")}" placeholder="ex. 2025xxxx">
+		<label for="g1-nom">Nom affiché (facultatif)</label>
+		<input id="g1-nom" autocomplete="off" value="${h(g.nom || "")}" placeholder="GIM1 groupe 1">
+		<div class="actions"><button class="bouton plein" data-g1-enregistrer>Enregistrer</button>${g.liseId ? '<button class="bouton danger" data-g1-retirer>Retirer</button>' : ""}</div>
+		${lien ? `<p style="margin-top:12px">Son emploi du temps, sans aucune tâche :</p>
+		<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
+		<div class="code-lien">${h(lien)}</div>
+		<button class="bouton" style="margin-top:8px" data-copier="${h(lien)}">Copier le lien</button>
+		<p class="petit" style="margin-top:8px">Site Lise du camarade : ${etat ? `${etat.ok ? "✅" : "⚠️"} ${h(etat.message)}` : "pas encore lu"}</p>
+		<details class="petit"><summary>Ajouter aussi son emploi du temps du site Lise</summary>
+		<p>Le site Lise est parfois plus à jour que le lien iCal. Pour le lire, il faut son mot de passe Lise, <strong>avec son accord</strong> : il n'est jamais écrit dans l'appli ni dans les données.</p>
+		<p>GitHub → dépôt <code>appli-ensam</code> → Settings → Secrets and variables → Actions → <em>New repository secret</em> · Nom : <code>LISE_PASSWORD_G1</code> · Valeur : son mot de passe.</p>
+		<p>Comme personne ne tranche pour lui, la version du site Lise est prise quand elle diffère ; un cours absent du site reste, marqué ❓.</p></details>` : ""}
+	</section>`;
+}
 
 function ecranConnexion() {
 	return `<div class="accueil-connexion carte">
@@ -746,7 +773,7 @@ async function enregistrerToken(val) {
 }
 
 document.addEventListener("click", (e) => {
-	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours],[data-partiel-voir],[data-ag-vue]");
+	const el = e.target.closest("[data-fermer],[data-cours],[data-tache],[data-partiel],[data-semaine],[data-seg],[data-nouveau-partiel],[data-tache-pour],[data-tache-cours],[data-copier],[data-recharger],[data-forcer],[data-token],[data-token0],[data-deconnexion],[data-suivre],[data-reattribuer],[data-garder],[data-partiel-cours],[data-partiel-voir],[data-ag-vue],[data-g1-enregistrer],[data-g1-retirer]");
 	if (!el) return;
 	const d = el.dataset;
 	if ("fermer" in d) return fermerFeuille();
@@ -787,6 +814,19 @@ document.addEventListener("click", (e) => {
 	}
 	if (d.copier) { navigator.clipboard?.writeText(d.copier).then(() => alerteDouce("Lien copié."), () => {}); return; }
 	if ("recharger" in d) return charger().then(() => alerteDouce("À jour."));
+	if ("g1Enregistrer" in d) {
+		const liseId = $("#g1-id").value.replace(/\s+/g, ""), nom = $("#g1-nom").value.trim();
+		if (!/^\d{4,}$/.test(liseId)) return bandeau("Numéro étudiant invalide (chiffres uniquement)");
+		const alea = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, "0")).join("");
+		return action(() => modifier("config.json", "config", (cfg) => {
+			const l = (cfg.groupes || []).filter((x) => x.id !== "g1"), a = (cfg.groupes || []).find((x) => x.id === "g1");
+			cfg.groupes = [...l, { id: "g1", nom: nom || "groupe 1", liseId, icsName: a?.icsName || `g1-${alea()}` }];
+			return cfg;
+		}, "Calendrier du groupe 1"));
+	}
+	if ("g1Retirer" in d) {
+		return action(() => modifier("config.json", "config", (cfg) => { cfg.groupes = (cfg.groupes || []).filter((x) => x.id !== "g1"); return cfg; }, "Calendrier du groupe 1 retiré"));
+	}
 	if ("forcer" in d) {
 		return api(`repos/${APP_REPO}/actions/workflows/sync.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) })
 			.then((r) => alerteDouce(r.ok ? "Synchro lancée : résultat d'ici 1 à 2 minutes." : "Impossible de lancer la synchro (droit « Actions » manquant sur le code ?)."))
