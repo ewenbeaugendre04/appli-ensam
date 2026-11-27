@@ -185,7 +185,7 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 	const L = [
 		"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Appli ENSAM//FR", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
 		`X-WR-CALNAME:${esc(nom)}`, `X-WR-TIMEZONE:${TZ}`,
-		"REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H",
+		"REFRESH-INTERVAL;VALUE=DURATION:PT15M", "X-PUBLISHED-TTL:PT15M",
 	];
 	for (const e of events) {
 		const desc = [e.doute && "Version à confirmer : le lien iCal et le site Lise ne sont pas d'accord (choisis la bonne dans l'agenda de l'appli).", e.type && `Type : ${e.type}`, e.module && `Module : ${e.module}`, e.profs && `Intervenants : ${e.profs}`, e.groupes && `Groupes : ${e.groupes}`].filter(Boolean).join("\n");
@@ -422,7 +422,7 @@ async function main() {
 	const nomNetlify = String(config.icsCours || "cours-ensam").replace(/[^\w.-]/g, "");
 	await mkdir("netlify-out", { recursive: true });
 	await writeFile(`netlify-out/${nomNetlify}.ics`, icsCours);
-	await writeFile("netlify-out/_headers", `/*.ics\n  Content-Type: text/calendar; charset=utf-8\n  Cache-Control: max-age=900\n`);
+	await writeFile("netlify-out/_headers", `/*.ics\n  Content-Type: text/calendar; charset=utf-8\n  Cache-Control: max-age=300\n`);
 	console.log(`Calendrier cours : ${coursChoisis.length} cours (${coursChoisis.filter((e) => e.doute).length} à confirmer).`);
 	console.log(`OK : ${events.length} cours, ${tasks.filter((t) => !t.fait).length} tâches, ${partiels.length} partiels. ${etat.message}`);
 }

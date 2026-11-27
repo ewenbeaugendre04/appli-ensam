@@ -569,7 +569,7 @@ const VUES = {
 		const lienCours = cfg.icsCoursUrl ? cfg.icsCoursUrl : cfg.icsCours ? `${base}cal/${cfg.icsCours}.ics` : lien.replace(/\.ics$/, "-cours.ics");
 		return `<div class="grille deux">
 			<section class="carte"><h2>Calendrier Apple</h2>
-				${lien ? `<p>Abonne-toi une fois sur chaque appareil : cours Lise, partiels et tâches s'y mettent à jour toutes les heures.</p>
+				${lien ? `<p>Abonne-toi une fois sur chaque appareil : cours Lise, partiels et tâches s'y mettent à jour en continu (synchro avec Lise toutes les 10 minutes).</p>
 				<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
 				<p class="petit">Dans la fenêtre qui s'ouvre, désactive « Supprimer les alertes » pour recevoir les rappels des tâches et des partiels.</p>
 				<div class="code-lien">${h(lien)}</div>
@@ -580,7 +580,7 @@ const VUES = {
 				<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lienCours.replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
 				<div class="code-lien">${h(lienCours)}</div>
 				<button class="bouton" style="margin-top:8px" data-copier="${h(lienCours)}">Copier le lien</button>
-				<p class="petit">Mis à jour toutes les heures. Si tu t'abonnes aux deux calendriers, les cours apparaîtront deux fois : garde l'un ou l'autre.</p>
+				<p class="petit">Synchro avec Lise toutes les 10 minutes. Sur iPhone, pour que Calendrier vérifie souvent : Réglages → Calendrier → Comptes → Nouvelles données → « Toutes les 15 minutes ». Si tu t'abonnes aux deux calendriers, les cours apparaîtront deux fois : garde l'un ou l'autre.</p>
 			</section>` : ""}
 			<section class="carte"><h2>Synchronisation</h2>
 				<p class="petit">Identifiant Lise : ${h(cfg.liseId || "—")} · Demi-troupe : ${h(cfg.groupe || "—")}</p>

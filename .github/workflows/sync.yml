@@ -2,7 +2,7 @@ name: Synchro Lise et publication
 
 on:
   schedule:
-    - cron: "7 * * * *" # toutes les heures
+    - cron: "2-59/10 * * * *" # toutes les 10 minutes (GitHub peut retarder de quelques minutes aux heures chargées)
   workflow_dispatch: # lancé aussi par l'app après chaque modification
   push:
     branches: [main]

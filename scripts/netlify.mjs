@@ -53,6 +53,17 @@ async function main() {
 	const fichiers = {};
 	for (const f of noms) fichiers[f] = await readFile(`${DOSSIER}/${f}`);
 	const s = await site(ics.replace(/\.ics$/, ""));
+	const base = (s.ssl_url || s.url || `https://${s.name}.netlify.app`).replace(/^http:/, "https:");
+	// Rien de changé (hors horodatage DTSTAMP) : pas de nouveau déploiement
+	const sansHorodatage = (t) => String(t).replace(/^DTSTAMP:.*$/gm, "");
+	try {
+		const enLigne = await fetch(`${base}/${ics}`, { cache: "no-store" });
+		if (enLigne.ok && sansHorodatage(await enLigne.text()) === sansHorodatage(fichiers[ics].toString("utf8"))) {
+			console.log("Calendrier cours inchangé : pas de nouveau déploiement Netlify.");
+			await retenirAdresse(`${base}/${ics}`);
+			return;
+		}
+	} catch { /* site pas encore en ligne : on déploie */ }
 	// Déploiement par empreintes : on annonce les fichiers, Netlify demande ceux qu'il n'a pas
 	const empreintes = Object.fromEntries(Object.entries(fichiers).map(([f, b]) => ["/" + f, createHash("sha1").update(b).digest("hex")]));
 	const dep = await (await nf(`/sites/${s.id}/deploys`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ files: empreintes }) })).json();
@@ -60,7 +71,7 @@ async function main() {
 		if (!(dep.required || []).includes(empreintes["/" + f])) continue;
 		await nf(`/deploys/${dep.id}/files/${encodeURIComponent(f)}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: b });
 	}
-	const url = `${(s.ssl_url || s.url || `https://${s.name}.netlify.app`).replace(/^http:/, "https:")}/${ics}`;
+	const url = `${base}/${ics}`;
 	console.log(`Calendrier cours publié : ${url}`);
 	await retenirAdresse(url);
 }
