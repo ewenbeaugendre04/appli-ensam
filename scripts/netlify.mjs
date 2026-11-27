@@ -53,13 +53,21 @@ async function main() {
 	const fichiers = {};
 	for (const f of noms) fichiers[f] = await readFile(`${DOSSIER}/${f}`);
 	const s = await site(ics.replace(/\.ics$/, ""));
+	// Netlify protège par défaut les sites des nouveaux comptes (connexion Netlify obligatoire) :
+	// le calendrier doit être public pour que Calendrier puisse s'y abonner.
+	if (s.sso_login || s.password_context === "all" && s.has_password) {
+		const r = await nf(`/sites/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sso_login: false, sso_login_context: "none", password: "", password_context: "none" }), tolerer: [400, 403, 422] });
+		const apres = r.ok ? await r.json() : null;
+		console.log(`Protection du site : ${r.status} → sso_login=${apres?.sso_login} contexte=${apres?.sso_login_context}${r.ok ? "" : " " + (await r.text()).slice(0, 200)}`);
+		if (apres) Object.assign(s, apres);
+	}
 	const base = (s.ssl_url || s.url || `https://${s.name}.netlify.app`).replace(/^http:/, "https:");
 	// Rien de changé (hors horodatage DTSTAMP) : pas de nouveau déploiement
 	const sansHorodatage = (t) => String(t).replace(/^DTSTAMP:.*$/gm, "");
 	try {
 		const enLigne = await fetch(`${base}/${ics}`, { cache: "no-store" });
 		if (enLigne.ok && sansHorodatage(await enLigne.text()) === sansHorodatage(fichiers[ics].toString("utf8"))) {
-			console.log("Calendrier cours inchangé : pas de nouveau déploiement Netlify.");
+			console.log("Calendrier cours inchangé : pas de nouveau déploiement Netlify (fichier accessible).");
 			await retenirAdresse(`${base}/${ics}`);
 			return;
 		}
