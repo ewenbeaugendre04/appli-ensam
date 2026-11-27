@@ -574,6 +574,13 @@ const VUES = {
 				<div class="code-lien">${h(lien)}</div>
 				<button class="bouton" style="margin-top:8px" data-copier="${h(lien)}">Copier le lien</button>` : '<p class="vide">Lien pas encore disponible.</p>'}
 			</section>
+			${lien ? `<section class="carte"><h2>Calendrier « cours seulement »</h2>
+				<p>Cours et partiels, <b>sans tes tâches</b>, avec tes choix iCal / Lise appliqués. Un cours encore à trancher apparaît en double, précédé de ❓.</p>
+				<a class="bouton plein large" style="display:block;text-align:center;text-decoration:none" href="${h(lien.replace(/\.ics$/, "-cours.ics").replace(/^https?:/, "webcal:"))}">S'abonner dans Calendrier</a>
+				<div class="code-lien">${h(lien.replace(/\.ics$/, "-cours.ics"))}</div>
+				<button class="bouton" style="margin-top:8px" data-copier="${h(lien.replace(/\.ics$/, "-cours.ics"))}">Copier le lien</button>
+				<p class="petit">Mis à jour toutes les heures. Si tu t'abonnes aux deux calendriers, les cours apparaîtront deux fois : garde l'un ou l'autre.</p>
+			</section>` : ""}
 			<section class="carte"><h2>Synchronisation</h2>
 				<p class="petit">Identifiant Lise : ${h(cfg.liseId || "—")} · Demi-troupe : ${h(cfg.groupe || "—")}</p>
 				<button class="bouton large" data-recharger>Recharger maintenant</button>

@@ -188,11 +188,11 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 		"REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H",
 	];
 	for (const e of events) {
-		const desc = [e.type && `Type : ${e.type}`, e.module && `Module : ${e.module}`, e.profs && `Intervenants : ${e.profs}`, e.groupes && `Groupes : ${e.groupes}`].filter(Boolean).join("\n");
+		const desc = [e.doute && "Version à confirmer : le lien iCal et le site Lise ne sont pas d'accord (choisis la bonne dans l'agenda de l'appli).", e.type && `Type : ${e.type}`, e.module && `Module : ${e.module}`, e.profs && `Intervenants : ${e.profs}`, e.groupes && `Groupes : ${e.groupes}`].filter(Boolean).join("\n");
 		L.push("BEGIN:VEVENT", `UID:lise-${esc(e.uid)}`, `DTSTAMP:${now}`);
 		if (e.journee) L.push(`DTSTART;VALUE=DATE:${dateOnly(e.debut)}`, `DTEND;VALUE=DATE:${dateOnly(e.fin)}`);
 		else L.push(`DTSTART:${utcStamp(e.debut)}`, `DTEND:${utcStamp(e.fin)}`);
-		L.push(`SUMMARY:${esc((e.examen ? "🎓 " : "") + (e.type ? `${e.type} · ` : "") + e.titre)}`);
+		L.push(`SUMMARY:${esc((e.doute ? "❓ " : "") + (e.examen ? "🎓 " : "") + (e.type ? `${e.type} · ` : "") + e.titre)}`);
 		if (e.salle) L.push(`LOCATION:${esc(e.salle)}`);
 		if (desc) L.push(`DESCRIPTION:${esc(desc)}`);
 		if (e.examen) L.push(...alarm("-P7D", `Partiel dans 7 jours : ${e.titre}`), ...alarm("-P1D", `Partiel demain : ${e.titre}`));
@@ -239,6 +239,43 @@ export function buildIcs({ events, tasks, partiels, nom }) {
 	}
 	L.push("END:VCALENDAR");
 	return L.map(fold).join("\r\n") + "\r\n";
+}
+
+// ---------- Calendrier « cours seulement » avec les choix iCal / Lise ----------
+// Mêmes règles que l'agenda de l'appli (ecarts-choix.js) :
+//  - écart d'horaire : version choisie dans choix.json → versions ("ics" = lien iCal, "lise" = site) ;
+//    sans choix et sans décision : les deux versions, marquées ❓ ;
+//  - cours qui se chevauchent entre le lien iCal et le site (uid « web-… ») : seul le cours retenu
+//    (choix.json → effectifs) ; sans choix : tous, marqués ❓.
+export function appliquerChoix(events, ecarts, choix, decisions) {
+	const versions = choix?.versions || {}, retenus = new Set(choix?.effectifs || []);
+	const decides = new Set([...(decisions?.appliques || []), ...(decisions?.ignores || [])]);
+	const doute = (e) => ({ ...e, doute: true });
+	let out = events.slice();
+	for (const x of ecarts || []) {
+		if (x.type !== "horaire" || !x.avant || !x.apres) continue;
+		const uid = String(x.avant.uid), cote = versions[x.id];
+		if (!cote && decides.has(x.id)) continue;
+		out = out.filter((e) => String(e.uid) !== uid);
+		if (cote === "ics") out.push(x.avant);
+		else if (cote === "lise") out.push(x.apres);
+		else out.push(doute(x.avant), doute({ ...x.apres, uid: uid + "-site" }));
+	}
+	out.sort((a, b) => a.debut.localeCompare(b.debut));
+	const estWeb = (e) => String(e.uid).startsWith("web-");
+	const groupes = [];
+	let g = null, fin = "";
+	for (const e of out.filter((e) => !e.journee)) {
+		if (g && e.debut < fin) { g.push(e); if (e.fin > fin) fin = e.fin; }
+		else { g = [e]; groupes.push(g); fin = e.fin; }
+	}
+	const exclus = new Set(), douteux = new Set();
+	for (const gr of groupes) {
+		if (gr.length < 2 || !gr.some(estWeb) || !gr.some((e) => !estWeb(e))) continue;
+		if (gr.some((e) => retenus.has(String(e.uid)))) { for (const e of gr) if (!retenus.has(String(e.uid))) exclus.add(e.uid); }
+		else for (const e of gr) douteux.add(e.uid);
+	}
+	return out.filter((e) => !exclus.has(e.uid)).map((e) => (douteux.has(e.uid) ? doute(e) : e));
 }
 
 // ---------- Programme principal ----------
@@ -335,6 +372,7 @@ async function main() {
 	const prev = await readJson("events.json", { data: { events: [] } });
 
 	let events = prev.data.events || [];
+	let ecartsCourants = (await readJson("ecarts.json", { data: { ecarts: [] } })).data?.ecarts || [];
 	let etat = { ok: true, message: "Synchronisé avec Lise" };
 	try {
 		const raw = parseIcs(await fetchLise(config.liseId));
@@ -353,6 +391,7 @@ async function main() {
 				const ids = ecarts.map((x) => x.id).join();
 				if (!prevEc.data || prevEc.data.ecarts.map((x) => x.id).join() !== ids) await writeJson("ecarts.json", { majLe: new Date().toISOString(), sourceMajLe: web.majLe, ecarts }, prevEc.sha, `Planning : ${ecarts.length} écart(s) avec le site Lise`);
 				events = appliquerEcarts(events, ecarts, dec.appliques || []);
+				ecartsCourants = ecarts;
 			}
 		}
 	} catch (err) {
@@ -371,6 +410,12 @@ async function main() {
 	const ics = buildIcs({ events, tasks, partiels, nom: config.nomCalendrier || "ENSAM" });
 	await mkdir(`${OUT_DIR}/cal`, { recursive: true });
 	await writeFile(`${OUT_DIR}/cal/${config.icsName}.ics`, ics);
+	// Deuxième calendrier : cours (avec les choix iCal / Lise) et partiels, sans les tâches
+	const choix = (await readJson("choix.json", { data: { effectifs: [], versions: {} } })).data;
+	const decisions = (await readJson("decisions.json", { data: { appliques: [], ignores: [] } })).data;
+	const coursChoisis = appliquerChoix(events, ecartsCourants, choix, decisions);
+	await writeFile(`${OUT_DIR}/cal/${config.icsName}-cours.ics`, buildIcs({ events: coursChoisis, tasks: [], partiels, nom: (config.nomCalendrier || "ENSAM") + " · cours" }));
+	console.log(`Calendrier cours : ${coursChoisis.length} cours (${coursChoisis.filter((e) => e.doute).length} à confirmer).`);
 	console.log(`OK : ${events.length} cours, ${tasks.filter((t) => !t.fait).length} tâches, ${partiels.length} partiels. ${etat.message}`);
 }
 
