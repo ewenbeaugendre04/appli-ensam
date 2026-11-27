@@ -56,7 +56,7 @@ async function main() {
 	// Netlify protège par défaut les sites des nouveaux comptes (connexion Netlify obligatoire) :
 	// le calendrier doit être public pour que Calendrier puisse s'y abonner.
 	if (s.sso_login || s.password_context === "all" && s.has_password) {
-		const r = await nf(`/sites/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sso_login: false, sso_login_context: "none", password: "", password_context: "none" }), tolerer: [400, 403, 422] });
+		const r = await nf(`/sites/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sso_login: false, sso_login_context: "non_production", password_context: "non_production" }), tolerer: [400, 403, 422] });
 		const apres = r.ok ? await r.json() : null;
 		console.log(`Protection du site : ${r.status} → sso_login=${apres?.sso_login} contexte=${apres?.sso_login_context}${r.ok ? "" : " " + (await r.text()).slice(0, 200)}`);
 		if (apres) Object.assign(s, apres);
