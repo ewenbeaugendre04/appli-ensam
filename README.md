@@ -15,6 +15,7 @@ Web app installable (iPad + iPhone) : emploi du temps Lise, partiels, tâches li
     - `ecarts-infos.js` : onglet « Écarts » (verdict, explication, détails, détection des cours suspects).
 - `scripts/sync.mjs` : synchro horaire Lise → calendrier, tâches et partiels → lien d'abonnement `.ics`.
 - `scripts/notes.mjs` : récupération des notes Lise.
+- `scripts/netlify.mjs` : publie le calendrier « cours seulement » sur Netlify (adresse lisible), si le secret `NETLIFY_TOKEN` existe.
 - `.github/workflows/sync.yml` : exécute les synchros toutes les heures, à chaque push et à la demande, puis publie le site.
 
 Aucune donnée personnelle n'est stockée ici : tout est dans le dépôt privé `appli-ensam-data`,

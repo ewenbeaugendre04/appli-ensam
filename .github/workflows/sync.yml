@@ -34,6 +34,14 @@ jobs:
           mkdir -p _site
           cp -r app/. _site/
 
+      - name: Publier le calendrier cours sur Netlify
+        continue-on-error: true
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPO: ${{ github.repository_owner }}/appli-ensam-data
+        run: node scripts/netlify.mjs
+
       - name: Récupérer les notes Lise
         continue-on-error: true
         env:

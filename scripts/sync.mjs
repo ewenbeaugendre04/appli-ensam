@@ -418,6 +418,11 @@ async function main() {
 	// Adresse lisible choisie dans config.json (icsCours) ; l'ancienne adresse reste servie pour les abonnements déjà faits
 	await writeFile(`${OUT_DIR}/cal/${config.icsName}-cours.ics`, icsCours);
 	if (config.icsCours) await writeFile(`${OUT_DIR}/cal/${String(config.icsCours).replace(/[^\w.-]/g, "")}.ics`, icsCours);
+	// Copie pour Netlify (adresse lisible) : le fichier + l'en-tête qui le fait reconnaître comme calendrier
+	const nomNetlify = String(config.icsCours || "cours-ensam").replace(/[^\w.-]/g, "");
+	await mkdir("netlify-out", { recursive: true });
+	await writeFile(`netlify-out/${nomNetlify}.ics`, icsCours);
+	await writeFile("netlify-out/_headers", `/*.ics\n  Content-Type: text/calendar; charset=utf-8\n  Cache-Control: max-age=900\n`);
 	console.log(`Calendrier cours : ${coursChoisis.length} cours (${coursChoisis.filter((e) => e.doute).length} à confirmer).`);
 	console.log(`OK : ${events.length} cours, ${tasks.filter((t) => !t.fait).length} tâches, ${partiels.length} partiels. ${etat.message}`);
 }

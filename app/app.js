@@ -566,7 +566,7 @@ const VUES = {
 		const cfg = S.data.config;
 		const base = location.origin + location.pathname.replace(/index\.html$/, "").replace(/\/?$/, "/");
 		const lien = cfg.icsName ? `${base}cal/${cfg.icsName}.ics` : "";
-		const lienCours = cfg.icsCours ? `${base}cal/${cfg.icsCours}.ics` : lien.replace(/\.ics$/, "-cours.ics");
+		const lienCours = cfg.icsCoursUrl ? cfg.icsCoursUrl : cfg.icsCours ? `${base}cal/${cfg.icsCours}.ics` : lien.replace(/\.ics$/, "-cours.ics");
 		return `<div class="grille deux">
 			<section class="carte"><h2>Calendrier Apple</h2>
 				${lien ? `<p>Abonne-toi une fois sur chaque appareil : cours Lise, partiels et tâches s'y mettent à jour toutes les heures.</p>
